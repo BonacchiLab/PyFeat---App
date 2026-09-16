@@ -1,8 +1,11 @@
+import math
+from io import BytesIO
 import streamlit as st
 import pandas as pd
 import tempfile
 import os
 import cv2
+import torch
 from feat import Detector
 
 #Design basico da pagina 
@@ -11,7 +14,8 @@ st.set_page_config(page_title="User-Friendly Py-FEAT Interface", layout="wide")
 #Core coisas e cenas base e tal
 @st.cache_resource(show_spinner=False)
 def load_detector():
-    return Detector()
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    return Detector(device=device)
 
 @st.cache_data(show_spinner=False)
 def get_video_metadata(file_name, file_bytes):
@@ -29,6 +33,61 @@ def get_video_metadata(file_name, file_bytes):
         os.remove(tmp_path)
         
     return fps if fps > 0 else 30.0, total_frames
+
+
+def format_seconds_to_clock(seconds):
+    minutes = int(seconds // 60)
+    secs = int(seconds % 60)
+    return f"{minutes:02d}:{secs:02d}"
+
+
+def aggregate_by_second(df, fps):
+    """Aggregate a per-frame dataframe into one row per second, using the mean of all frames in each second."""
+    if df is None or df.empty or "frame" not in df.columns:
+        return df
+
+    df = df.copy()
+    df["_frame_index"] = pd.to_numeric(df["frame"], errors="coerce")
+    df["_second_bin"] = (df["_frame_index"] / float(fps)).astype(float).floordiv(1).astype(int)
+
+    numeric_cols = [
+        col for col in df.columns
+        if col not in {"input", "frame", "approx_time", "_frame_index", "_second_bin"}
+        and pd.api.types.is_numeric_dtype(df[col])
+    ]
+
+    if not numeric_cols:
+        return df
+
+    grouped = df.groupby("_second_bin", as_index=False)[numeric_cols].mean()
+    grouped["second"] = grouped["_second_bin"].astype(int)
+    grouped["time_start_sec"] = grouped["second"].astype(float)
+    grouped["time_end_sec"] = grouped["second"].astype(float) + 1.0
+    grouped["approx_time"] = grouped["time_start_sec"].apply(format_seconds_to_clock)
+    grouped["frame"] = grouped["time_start_sec"] * float(fps)
+
+    if "input" in df.columns:
+        grouped["input"] = df.groupby("_second_bin")["input"].first().reset_index(drop=True).to_numpy()
+
+    grouped = grouped.sort_values("second").reset_index(drop=True)
+    return grouped
+
+
+def prepare_frame_dataframe(df_raw, fps, sampling_rate):
+    """Return a dataframe that is either raw per-frame or aggregated per second."""
+    if "A cada frame" in sampling_rate:
+        df_out = df_raw.copy()
+        df_out["time_sec"] = pd.to_numeric(df_out["frame"], errors="coerce") / float(fps)
+        df_out["approx_time"] = df_out["time_sec"].apply(format_seconds_to_clock)
+        return df_out
+
+    return aggregate_by_second(df_raw, fps)
+
+
+def dataframe_to_parquet_bytes(df):
+    buffer = BytesIO()
+    df.to_parquet(buffer, engine="pyarrow", compression="snappy", index=False)
+    return buffer.getvalue()
 
 
 st.title("Análise de Expressões Faciais - Extração de dados através do Py-FEAT")
@@ -62,37 +121,47 @@ with st.sidebar:
     
     sampling_rate = st.selectbox(
         "Como deseja separar os frames para a análise?",
-        options=["A cada frame (Máxima resolução)", "1 FPS (1 frame por segundo)", 
-            "0.5 FPS (1 frame a cada 2 segs)"],index=1)
+        options=[
+            "A cada frame (Máxima resolução)",
+            "1 FPS (rápido; frame representativo)",
+            "1 FPS (média exata de todos os frames)",
+        ],
+        index=1,
+    )
+    st.caption(
+        "O modo rápido analisa 1 frame por segundo. A média exata analisa todos os frames e é significativamente mais lenta."
+    )
     
     st.markdown("---")
     st.subheader("Previsão de Tempo de Processamento")
     
     #Tempo de espera
     if uploaded_files:
-        frames_calculados = 0
+        frames_to_analyze = 0
+        output_rows = 0
         for file_name, info in videos_info.items():
             vid_fps = info["fps"]
             vid_frames = info["frames"]
-            
-            # Ajuste hipermega profissional do skip_frames baseado nos frames do vídeo
-            if "A cada frame" in sampling_rate:
+
+            if "A cada frame" in sampling_rate or "média exata" in sampling_rate:
                 skip = 1
-            elif "1 FPS" in sampling_rate:
-                skip = max(1, int(round(vid_fps)))
+                effective_rows = vid_frames
             else:
-                skip = max(1, int(round(vid_fps * 2)))
-                
+                skip = max(1, int(round(vid_fps)))
+                effective_rows = max(1, int(math.ceil(vid_frames / max(1.0, vid_fps))))
+
             videos_info[file_name]["skip_frames"] = skip
-            frames_calculados += (vid_frames // skip)
-            
-        # Assunção que tem de ser corrigida (passei de 0.08s por frame para 0.8s por frame)
-        tempo_estimado_segundos = frames_calculados * 0.8
+            videos_info[file_name]["sampling_mode"] = sampling_rate
+            frames_to_analyze += vid_frames // skip
+            output_rows += effective_rows
+
+        tempo_estimado_segundos = frames_to_analyze * 0.8
         minutos = int(tempo_estimado_segundos // 60)
         segundos = int(tempo_estimado_segundos % 60)
-        
-        st.metric(label="Frames a Processar", value=f"{frames_calculados}")
-        st.metric(label="Tempo Estimado Total", value=f"{minutos}m {segundos}s")
+
+        st.metric(label="Frames a Analisar", value=f"{frames_to_analyze}")
+        st.metric(label="Linhas no Output", value=f"{output_rows}")
+        st.caption(f"Tempo estimado de análise: {minutos}m {segundos}s")
     else:
         st.info("Faça upload de vídeos para calcular o tempo estimado.")
 
@@ -144,28 +213,42 @@ if st.button("Iniciar Extração Py-FEAT", type="primary"):
         for idx, file in enumerate(uploaded_files):
             subject_id = video_subjects[file.name]
             skip_frames = videos_info[file.name]["skip_frames"]
-            
-            # Atualizar barra 
+            sampling_mode = videos_info[file.name].get("sampling_mode", sampling_rate)
+
             progress_text = f"A processar vídeo {idx + 1} de {total_files}: {file.name} (Sujeito: {subject_id})"
             progress_bar.progress(idx / total_files, text=progress_text)
-            
+
             with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as temp_video:
                 file.seek(0)
                 temp_video.write(file.read())
                 temp_video_path = temp_video.name
-            
+
             try:
-                with st.spinner(f"A extrair Action Units (A saltar {skip_frames} frames de cada vez)..."):
-                    # detecao de video py-feat
-                    video_prediction = detector.detect_video(temp_video_path, skip_frames=skip_frames)
-                    
-                    # GARANTIR O DATAFRAME EM PANDAS :c 
+                with st.spinner(f"A extrair Action Units (a processar todos os frames e depois agregando conforme a seleção)..."):
+                    with torch.no_grad():
+                        video_prediction = detector.detect_video(
+                            temp_video_path,
+                            skip_frames=skip_frames,
+                            batch_size=4,
+                        )
                     df_raw = video_prediction.to_pandas() if hasattr(video_prediction, 'to_pandas') else video_prediction
-                    
+
+                    output_df = prepare_frame_dataframe(df_raw, videos_info[file.name]["fps"], sampling_mode)
+                    output_df["subject_id"] = subject_id
+                    output_df["input_file"] = file.name
+
                     st.success(f"Extração concluída para {file.name}!")
-                    st.write(f"Amostra dos Dados Brutos ({df_raw.shape[0]} frames capturados):")
-                    st.dataframe(df_raw.head())
-                    
+                    st.write(f"Pré-visualização dos dados finais ({output_df.shape[0]} linhas) — {sampling_mode}:")
+                    st.dataframe(output_df.head(50), use_container_width=True)
+
+                    parquet_bytes = dataframe_to_parquet_bytes(output_df)
+                    st.download_button(
+                        label="Baixar Parquet",
+                        data=parquet_bytes,
+                        file_name=f"{subject_id}_{os.path.splitext(file.name)[0]}_pyfeat.parquet",
+                        mime="application/vnd.apache.parquet",
+                    )
+
             finally:
                 if os.path.exists(temp_video_path):
                     os.remove(temp_video_path)
