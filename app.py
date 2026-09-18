@@ -10,6 +10,404 @@ from feat import Detector
 
 #Design basico da pagina 
 st.set_page_config(page_title="User-Friendly Py-FEAT Interface", layout="wide")
+st.markdown(
+    """
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap');
+
+        :root {
+            --ink: #edf3f1;
+            --muted: #c2cfcc;
+            --line: #394951;
+            --surface: #202c33;
+            --canvas: #111a1f;
+            --accent: #f09a52;
+            --accent-dark: #d87537;
+            --success: #2f9e67;
+            --success-dark: #247a50;
+            --deep: #0b1216;
+        }
+
+        .stApp {
+            background: var(--canvas);
+            color: var(--ink);
+            font-family: 'DM Sans', sans-serif;
+        }
+
+        [data-testid="stHeader"] {
+            background: transparent;
+        }
+
+        [data-testid="stSidebar"] {
+            background: var(--deep);
+            border-right: 1px solid #26363d;
+        }
+
+        [data-testid="stSidebar"] .stMarkdown,
+        [data-testid="stSidebar"] label,
+        [data-testid="stSidebar"] [data-testid="stCaptionContainer"],
+        [data-testid="stSidebar"] [data-testid="stHeader"] {
+            color: #f0f6f4;
+        }
+
+        [data-testid="stSidebar"] [data-baseweb="select"] > div {
+            background: #18242a;
+            border-color: #3c5059;
+        }
+
+        [data-testid="stSidebar"] [data-baseweb="select"] input,
+        [data-testid="stSidebar"] [data-baseweb="select"] span {
+            color: #f5fafb;
+        }
+
+        [data-baseweb="popover"] [role="option"],
+        [data-baseweb="popover"] [role="listbox"] {
+            color: var(--ink);
+            background: var(--surface);
+        }
+
+        [data-baseweb="popover"] [role="option"]:hover,
+        [data-baseweb="popover"] [aria-selected="true"] {
+            color: var(--ink);
+            background: #34454c;
+        }
+
+        .block-container {
+            max-width: 1400px;
+            padding: 3rem 4rem 5rem;
+        }
+
+        h1, h2, h3 {
+            color: var(--ink);
+            font-family: 'Space Grotesk', sans-serif;
+            letter-spacing: 0;
+        }
+
+        h1 {
+            font-size: clamp(2rem, 3vw, 3.2rem);
+            line-height: 1.08;
+            margin-bottom: 2rem;
+            max-width: 900px;
+        }
+
+        h2, h3 {
+            margin-top: 2rem;
+            padding-bottom: 0.65rem;
+            border-bottom: 1px solid var(--line);
+        }
+
+        [data-testid="stFileUploader"] {
+            background: var(--surface);
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 0.35rem;
+        }
+
+        [data-testid="stFileUploaderDropzone"] {
+            background: #18242a;
+            border: 1px dashed #536b73;
+        }
+
+        [data-testid="stMetric"] {
+            background: var(--surface);
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 0.8rem 1rem;
+        }
+
+        [data-testid="stMetricLabel"] {
+            color: var(--muted);
+        }
+
+        [data-testid="stMetricValue"] {
+            color: var(--accent-dark);
+            font-family: 'Space Grotesk', sans-serif;
+        }
+
+        [data-baseweb="input"] > div,
+        [data-baseweb="select"] > div {
+            border-color: var(--line);
+            border-radius: 6px;
+            background: var(--surface);
+        }
+
+        [data-baseweb="input"] input,
+        [data-baseweb="select"] input,
+        [data-baseweb="select"] span,
+        [data-testid="stTextInput"] input,
+        [data-testid="stNumberInput"] input {
+            color: var(--ink);
+        }
+
+        [data-testid="stFileUploader"] label,
+        [data-testid="stFileUploader"] small,
+        [data-testid="stFileUploader"] section,
+        [data-testid="stMarkdownContainer"] p,
+        [data-testid="stCaptionContainer"] {
+            color: var(--muted);
+        }
+
+        [data-testid="stFileUploader"] label,
+        [data-testid="stFileUploader"] small {
+            color: #d6e1de;
+        }
+
+        [data-testid="stCheckbox"] label {
+            color: var(--ink);
+        }
+
+        [data-testid="stSidebar"] [data-testid="stRadio"] label {
+            color: #f0f6f4;
+        }
+
+        .intro-hero {
+            background: #1b3036;
+            border-radius: 12px;
+            padding: 3.5rem 3.5rem 4rem;
+            margin: 1rem 0 2rem;
+            color: #f1f6f4;
+            box-shadow: 0 16px 40px rgba(0, 0, 0, 0.28);
+        }
+
+        .intro-hero h1 {
+            color: #f1f6f4;
+            max-width: 760px;
+            margin: 0 0 1rem;
+        }
+
+        .intro-hero p {
+            color: #d0dfda;
+            font-size: 1.08rem;
+            max-width: 680px;
+            line-height: 1.65;
+            margin: 0;
+        }
+
+        .intro-note {
+            border-left: 4px solid var(--accent);
+            background: var(--surface);
+            padding: 1rem 1.25rem;
+            color: var(--muted);
+            border-radius: 0 8px 8px 0;
+        }
+
+        [data-testid="stButton"] button,
+        [data-testid="stDownloadButton"] button {
+            border-radius: 6px;
+            font-weight: 600;
+            min-height: 2.7rem;
+        }
+
+        [data-testid="stButton"] button[kind="primary"] {
+            background: var(--success);
+            border-color: var(--success);
+            color: #ffffff;
+        }
+
+        [data-testid="stButton"] button[kind="primary"]:hover {
+            background: var(--success-dark);
+            border-color: var(--success-dark);
+            color: #ffffff;
+        }
+
+        [data-testid="stDownloadButton"] button:hover {
+            background: var(--accent-dark);
+            border-color: var(--accent-dark);
+            color: white;
+        }
+
+        [data-testid="stDataFrame"] {
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        hr {
+            border-color: var(--line);
+            margin: 2.5rem 0;
+        }
+
+        @media (max-width: 800px) {
+            .block-container {
+                padding: 2rem 1rem 3rem;
+            }
+        }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+TRANSLATIONS = {
+    "pt": {
+        "language": "Idioma",
+        "navigation": "Navegação",
+        "workspace": "Área de trabalho",
+        "introduction": "Introdução",
+        "home": "Voltar à página de introdução",
+        "portuguese": "Português",
+        "english": "English",
+        "title": "Análise de Expressões Faciais - Extração de dados através do Py-FEAT",
+        "intro_page_title": "Análise facial, com contexto e rigor",
+        "intro_page_body": "Esta aplicação transforma vídeos em dados estruturados sobre expressões faciais, Action Units, emoções e outros indicadores do Py-FEAT.",
+        "intro_placeholder": "O conteúdo introdutório desta página será definido na próxima etapa.",
+        "go_workspace": "Prosseguir para a ferramenta de análise",
+        "upload": "Upload de Dados e Identificação dos sujeitos",
+        "upload_help": "Carregue os vídeos da sessão experimental",
+        "subject_mapping": "**Mapeamento de Sujeitos por Vídeo:**",
+        "file_info": "Ficheiro: {name} ({frames} frames a {fps:.2f} fps)",
+        "subject_id": "ID do Sujeito",
+        "subject_placeholder": "Ex: Sujeito_01",
+        "controls": "Controlo de Extração",
+        "sampling_label": "Como deseja separar os frames para a análise?",
+        "all_frames": "A cada frame (Máxima resolução)",
+        "fast_fps": "1 FPS (rápido; frame representativo)",
+        "exact_fps": "1 FPS (média exata de todos os frames)",
+        "sampling_help": "O modo rápido analisa 1 frame por segundo. A média exata analisa todos os frames e é significativamente mais lenta.",
+        "time_prediction": "Previsão de Tempo de Processamento",
+        "frames_analyzed": "Frames a Analisar",
+        "output_rows": "Linhas no Output",
+        "estimated_time": "Tempo estimado de análise: {minutes}m {seconds}s",
+        "upload_for_estimate": "Faça upload de vídeos para calcular o tempo estimado.",
+        "metadata": "Metadados do Desenho Experimental",
+        "metadata_help": "Defina a quantidade de estímulos e os respetivos intervalos temporais (segundos) relativos ao vídeo. Exemplo: Estímulo 1 começa no segundo 4 e acaba no segundo 9.",
+        "metadata_toggle": "Adicionar marcadores de estímulo ao dataset",
+        "metadata_explanation": "Quando um intervalo é definido, cada frame/linha dentro dessa janela temporal recebe o nome do estímulo numa nova coluna do dataset.",
+        "stimulus_count": "Número de Estímulos na Sessão",
+        "stimulus": "**Estímulo {number}**",
+        "stimulus_name": "Nome do estímulo",
+        "stimulus_name_placeholder": "Ex: Baseline",
+        "start": "Início (segundos)",
+        "end": "Fim (segundos)",
+        "processing": "Processamento",
+        "start_extraction": "Extrair dados",
+        "missing_video": "Erro: Carregue pelo menos um vídeo para continuar.",
+        "missing_ids": "Aviso: Defina o ID do Sujeito para todos os vídeos carregados antes de processar.",
+        "validated": "Configuração validada. A iniciar...",
+        "loading": "A carregar...",
+        "preparing": "A preparar o processamento...",
+        "processing_video": "A processar vídeo {current} de {total}: {name} (Sujeito: {subject})",
+        "extracting": "A extrair Action Units (a processar todos os frames e depois agregando conforme a seleção)...",
+        "completed_file": "Extração concluída para {name}!",
+        "preview": "Pré-visualização dos dados finais ({rows} linhas) — {mode}:",
+        "download": "Baixar Parquet",
+        "finished": "Na próxima fase (Fase 3), vamos estruturar estes dados com os timestamps dos estímulos!",
+    },
+    "en": {
+        "language": "Language",
+        "navigation": "Navigation",
+        "workspace": "Workspace",
+        "introduction": "Introduction",
+        "home": "Return to the introduction page",
+        "portuguese": "Português",
+        "english": "English",
+        "title": "Facial Expression Analysis - Data Extraction with Py-FEAT",
+        "intro_page_title": "Facial analysis, with context and rigor",
+        "intro_page_body": "This application transforms videos into structured data about facial expressions, Action Units, emotions, and other Py-FEAT indicators.",
+        "intro_placeholder": "The introduction content for this page will be defined in the next stage.",
+        "go_workspace": "Continue to the analysis workspace",
+        "upload": "Data Upload and Subject Identification",
+        "upload_help": "Upload the videos from the experimental session",
+        "subject_mapping": "**Subject Mapping by Video:**",
+        "file_info": "File: {name} ({frames} frames at {fps:.2f} FPS)",
+        "subject_id": "Subject ID",
+        "subject_placeholder": "Example: Subject_01",
+        "controls": "Extraction Controls",
+        "sampling_label": "How should frames be selected for analysis?",
+        "all_frames": "Every frame (Maximum resolution)",
+        "fast_fps": "1 FPS (fast; representative frame)",
+        "exact_fps": "1 FPS (exact mean of all frames)",
+        "sampling_help": "Fast mode analyzes 1 frame per second. Exact mean analyzes every frame and is significantly slower.",
+        "time_prediction": "Processing Time Estimate",
+        "frames_analyzed": "Frames to Analyze",
+        "output_rows": "Output Rows",
+        "estimated_time": "Estimated analysis time: {minutes}m {seconds}s",
+        "upload_for_estimate": "Upload videos to calculate the estimated time.",
+        "metadata": "Experimental Design Metadata",
+        "metadata_help": "Define the number of stimuli and their time intervals (seconds) relative to the video. Example: Stimulus 1 starts at second 4 and ends at second 9.",
+        "metadata_toggle": "Add stimulus markers to the dataset",
+        "metadata_explanation": "When a time interval is defined, every frame/row inside that window receives the stimulus name in a new dataset column.",
+        "stimulus_count": "Number of Stimuli in the Session",
+        "stimulus": "**Stimulus {number}**",
+        "stimulus_name": "Stimulus name",
+        "stimulus_name_placeholder": "Example: Baseline",
+        "start": "Start (seconds)",
+        "end": "End (seconds)",
+        "processing": "Processing",
+        "start_extraction": "Extract data",
+        "missing_video": "Error: Upload at least one video to continue.",
+        "missing_ids": "Warning: Define the Subject ID for every uploaded video before processing.",
+        "validated": "Configuration validated. Starting...",
+        "loading": "Loading...",
+        "preparing": "Preparing processing...",
+        "processing_video": "Processing video {current} of {total}: {name} (Subject: {subject})",
+        "extracting": "Extracting Action Units (processing all frames and aggregating according to the selection)...",
+        "completed_file": "Extraction completed for {name}!",
+        "preview": "Preview of final data ({rows} rows) — {mode}:",
+        "download": "Download Parquet",
+        "finished": "Next phase (Phase 3): structure these data with the stimulus timestamps!",
+    },
+}
+
+page = st.session_state.get("app_page", "introduction")
+
+if page == "introduction":
+    st.markdown(
+        """
+        <style>
+            [data-testid="stSidebar"],
+            [data-testid="stSidebarCollapsedControl"] {
+                display: none;
+            }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+if page == "workspace":
+    with st.sidebar:
+        language_name = st.selectbox(
+            "Idioma / Language",
+            ["Português", "English"],
+            index=0,
+            key="interface_language",
+        )
+else:
+    language_name = st.selectbox(
+        "Idioma / Language",
+        ["Português", "English"],
+        index=0,
+        key="interface_language",
+    )
+
+language = "en" if language_name == "English" else "pt"
+
+
+def t(key, **values):
+    return TRANSLATIONS[language][key].format(**values)
+
+
+if page == "introduction":
+    st.markdown(
+        f"""
+        <section class="intro-hero">
+            <h1>{t("intro_page_title")}</h1>
+            <p>{t("intro_page_body")}</p>
+        </section>
+        <div class="intro-note">{t("intro_placeholder")}</div>
+        """,
+        unsafe_allow_html=True,
+    )
+    if st.button(t("go_workspace"), type="primary", use_container_width=True):
+        st.session_state["app_page"] = "workspace"
+        st.rerun()
+    st.stop()
+
+
+sampling_labels = {
+    t("all_frames"): "all_frames",
+    t("fast_fps"): "fast_fps",
+    t("exact_fps"): "exact_fps",
+}
 
 #Core coisas e cenas base e tal
 @st.cache_resource(show_spinner=False)
@@ -73,9 +471,9 @@ def aggregate_by_second(df, fps):
     return grouped
 
 
-def prepare_frame_dataframe(df_raw, fps, sampling_rate):
+def prepare_frame_dataframe(df_raw, fps, sampling_mode):
     """Return a dataframe that is either raw per-frame or aggregated per second."""
-    if "A cada frame" in sampling_rate:
+    if sampling_mode == "all_frames":
         df_out = df_raw.copy()
         df_out["time_sec"] = pd.to_numeric(df_out["frame"], errors="coerce") / float(fps)
         df_out["approx_time"] = df_out["time_sec"].apply(format_seconds_to_clock)
@@ -84,18 +482,45 @@ def prepare_frame_dataframe(df_raw, fps, sampling_rate):
     return aggregate_by_second(df_raw, fps)
 
 
+def apply_stimulus_metadata(df, stimuli):
+    """Label output rows whose time falls inside a configured stimulus window."""
+    if df is None or df.empty:
+        return df
+
+    df = df.copy()
+    if "time_sec" in df.columns:
+        row_times = pd.to_numeric(df["time_sec"], errors="coerce")
+    elif "time_start_sec" in df.columns:
+        row_times = pd.to_numeric(df["time_start_sec"], errors="coerce")
+    elif "frame" in df.columns:
+        row_times = pd.to_numeric(df["frame"], errors="coerce")
+    else:
+        row_times = pd.Series(float("nan"), index=df.index)
+
+    labels = pd.Series("", index=df.index, dtype="object")
+    for stimulus in stimuli:
+        start = float(stimulus["inicio"])
+        end = float(stimulus["fim"])
+        if end < start:
+            start, end = end, start
+        matches = row_times.ge(start) & row_times.lt(end)
+        labels.loc[matches] = stimulus["nome"]
+
+    df["stimulus"] = labels
+    return df
+
+
 def dataframe_to_parquet_bytes(df):
     buffer = BytesIO()
     df.to_parquet(buffer, engine="pyarrow", compression="snappy", index=False)
     return buffer.getvalue()
 
 
-st.title("Análise de Expressões Faciais - Extração de dados através do Py-FEAT")
-st.markdown("Plataforma iterativa para extração de Action Units e Emoções de forma simples e eficiente")
+st.title(t("title"))
 
 #Upload de Dados
-st.subheader("Upload de Dados e Identificação dos sujeitos")
-uploaded_files = st.file_uploader("Carregue os vídeos da sessão experimental", type=['mp4', 'avi', 'mov'], 
+st.subheader(t("upload"))
+uploaded_files = st.file_uploader(t("upload_help"), type=['mp4', 'avi', 'mov'],
     accept_multiple_files=True)
 
 video_subjects = {}
@@ -103,7 +528,7 @@ total_frames_to_process = 0
 videos_info = {}
 
 if uploaded_files:
-    st.markdown("**Mapeamento de Sujeitos por Vídeo:**")
+    st.markdown(t("subject_mapping"))
     for file in uploaded_files:
         #Ler a cache / calculamos os metadados
         fps, frames = get_video_metadata(file.name, file.read())
@@ -111,29 +536,28 @@ if uploaded_files:
         
         col_file, col_id = st.columns([1, 2])
         with col_file:
-            st.write(f"Ficheiro: {file.name} ({frames} frames a {fps:.2f} fps)")
+            st.write(t("file_info", name=file.name, frames=frames, fps=fps))
         with col_id:
-            video_subjects[file.name] = st.text_input(f"ID do Sujeito", key=f"id_{file.name}",placeholder=f"Ex: Sujeito_01",label_visibility="collapsed")
+            video_subjects[file.name] = st.text_input(t("subject_id"), key=f"id_{file.name}", placeholder=t("subject_placeholder"), label_visibility="collapsed")
 
 #Barra lateral para parâmetros tecnicos e tempo de espera
 with st.sidebar:
-    st.header("Controlo de Extração")
+    if st.button("⌂", help=t("home"), key="home_button", use_container_width=True):
+        st.session_state["app_page"] = "introduction"
+        st.rerun()
+
+    st.header(t("controls"))
     
     sampling_rate = st.selectbox(
-        "Como deseja separar os frames para a análise?",
-        options=[
-            "A cada frame (Máxima resolução)",
-            "1 FPS (rápido; frame representativo)",
-            "1 FPS (média exata de todos os frames)",
-        ],
+        t("sampling_label"),
+        options=list(sampling_labels),
         index=1,
     )
-    st.caption(
-        "O modo rápido analisa 1 frame por segundo. A média exata analisa todos os frames e é significativamente mais lenta."
-    )
+    sampling_mode = sampling_labels[sampling_rate]
+    st.caption(t("sampling_help"))
     
     st.markdown("---")
-    st.subheader("Previsão de Tempo de Processamento")
+    st.subheader(t("time_prediction"))
     
     #Tempo de espera
     if uploaded_files:
@@ -143,7 +567,7 @@ with st.sidebar:
             vid_fps = info["fps"]
             vid_frames = info["frames"]
 
-            if "A cada frame" in sampling_rate or "média exata" in sampling_rate:
+            if sampling_mode in {"all_frames", "exact_fps"}:
                 skip = 1
                 effective_rows = vid_frames
             else:
@@ -151,7 +575,7 @@ with st.sidebar:
                 effective_rows = max(1, int(math.ceil(vid_frames / max(1.0, vid_fps))))
 
             videos_info[file_name]["skip_frames"] = skip
-            videos_info[file_name]["sampling_mode"] = sampling_rate
+            videos_info[file_name]["sampling_mode"] = sampling_mode
             frames_to_analyze += vid_frames // skip
             output_rows += effective_rows
 
@@ -159,63 +583,73 @@ with st.sidebar:
         minutos = int(tempo_estimado_segundos // 60)
         segundos = int(tempo_estimado_segundos % 60)
 
-        st.metric(label="Frames a Analisar", value=f"{frames_to_analyze}")
-        st.metric(label="Linhas no Output", value=f"{output_rows}")
-        st.caption(f"Tempo estimado de análise: {minutos}m {segundos}s")
+        st.metric(label=t("frames_analyzed"), value=f"{frames_to_analyze}")
+        st.metric(label=t("output_rows"), value=f"{output_rows}")
+        st.caption(t("estimated_time", minutes=minutos, seconds=segundos))
     else:
-        st.info("Faça upload de vídeos para calcular o tempo estimado.")
+        st.info(t("upload_for_estimate"))
 
 st.markdown("---")
 
 # Metadados 
-st.subheader("Metadados do Desenho Experimental")
-st.markdown("Defina a quantidade de estímulos e os respetivos intervalos temporais (segundos) relativos ao vídeo. Exemplo: Estímulo 1 começa no segundo 4 e acaba no segundo 9.")
-
-num_estimulos = st.number_input("Número de Estímulos na Sessão", min_value=1, value=1, step=1)
 estimulos_timestamps = []
+st.subheader(t("metadata"))
+add_metadata = st.checkbox(t("metadata_toggle"), value=False)
+st.caption(t("metadata_explanation"))
 
-for i in range(int(num_estimulos)):
-    st.markdown(f"**Estímulo {i + 1}**")
-    col_start, col_end = st.columns(2)
-    with col_start:
-        t_start = st.number_input(f"Início (segundos)", min_value=0, value=30 * (i + 1), step=1, key=f"start_{i}")
-    with col_end:
-        t_end = st.number_input(f"Fim (segundos)", min_value=0, value=90 * (i + 1), step=1, key=f"end_{i}")
-    
-    estimulos_timestamps.append({
-        "estimulo_id": f"Estimulo_{i + 1}", 
-        "inicio": t_start, 
-        "fim": t_end
-    })
+if add_metadata:
+    st.markdown(t("metadata_help"))
+    num_estimulos = st.number_input(t("stimulus_count"), min_value=1, value=1, step=1)
+
+    for i in range(int(num_estimulos)):
+        st.markdown(t("stimulus", number=i + 1))
+        stimulus_name = st.text_input(
+            t("stimulus_name"),
+            value=f"Stimulus_{i + 1}",
+            placeholder=t("stimulus_name_placeholder"),
+            key=f"stimulus_name_{i}",
+        ).strip()
+        col_start, col_end = st.columns(2)
+        with col_start:
+            t_start = st.number_input(t("start"), min_value=0.0, value=float(30 * (i + 1)), step=1.0, key=f"start_{i}")
+        with col_end:
+            t_end = st.number_input(t("end"), min_value=0.0, value=float(90 * (i + 1)), step=1.0, key=f"end_{i}")
+
+        estimulos_timestamps.append({
+            "estimulo_id": f"Stimulus_{i + 1}",
+            "nome": stimulus_name or f"Stimulus_{i + 1}",
+            "inicio": t_start,
+            "fim": t_end,
+        })
 
 st.markdown("---")
 
 #Py-FEAT
-st.subheader("Processamento")
-if st.button("Iniciar Extração Py-FEAT", type="primary"):
+st.subheader(t("processing"))
+if st.button(t("start_extraction"), type="primary"):
     
     missing_ids = [vid for vid, subj_id in video_subjects.items() if not subj_id.strip()]
     
     if not uploaded_files:
-        st.error("Erro: Carregue pelo menos um vídeo para continuar.")
+        st.error(t("missing_video"))
     elif missing_ids:
-        st.warning("Aviso: Defina o ID do Sujeito para todos os vídeos carregados antes de processar.")
+        st.warning(t("missing_ids"))
     else:
-        st.success("Configuração validada. A iniciar...")
+        st.success(t("validated"))
         
-        with st.spinner("A carregar..."):
+        with st.spinner(t("loading")):
             detector = load_detector()
         
         # barra de loading
-        progress_bar = st.progress(0, text="A preparar o processamento...")
+        progress_bar = st.progress(0, text=t("preparing"))
         total_files = len(uploaded_files)
         
         for idx, file in enumerate(uploaded_files):
             subject_id = video_subjects[file.name]
             skip_frames = videos_info[file.name]["skip_frames"]
-            sampling_mode = videos_info[file.name].get("sampling_mode", sampling_rate)
+            sampling_mode = videos_info[file.name].get("sampling_mode", sampling_mode)
 
-            progress_text = f"A processar vídeo {idx + 1} de {total_files}: {file.name} (Sujeito: {subject_id})"
+            progress_text = t("processing_video", current=idx + 1, total=total_files, name=file.name, subject=subject_id)
             progress_bar.progress(idx / total_files, text=progress_text)
 
             with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as temp_video:
@@ -224,7 +658,7 @@ if st.button("Iniciar Extração Py-FEAT", type="primary"):
                 temp_video_path = temp_video.name
 
             try:
-                with st.spinner(f"A extrair Action Units (a processar todos os frames e depois agregando conforme a seleção)..."):
+                with st.spinner(t("extracting")):
                     with torch.no_grad():
                         video_prediction = detector.detect_video(
                             temp_video_path,
@@ -234,16 +668,18 @@ if st.button("Iniciar Extração Py-FEAT", type="primary"):
                     df_raw = video_prediction.to_pandas() if hasattr(video_prediction, 'to_pandas') else video_prediction
 
                     output_df = prepare_frame_dataframe(df_raw, videos_info[file.name]["fps"], sampling_mode)
+                    if add_metadata:
+                        output_df = apply_stimulus_metadata(output_df, estimulos_timestamps)
                     output_df["subject_id"] = subject_id
                     output_df["input_file"] = file.name
 
-                    st.success(f"Extração concluída para {file.name}!")
-                    st.write(f"Pré-visualização dos dados finais ({output_df.shape[0]} linhas) — {sampling_mode}:")
+                    st.success(t("completed_file", name=file.name))
+                    st.write(t("preview", rows=output_df.shape[0], mode=sampling_rate))
                     st.dataframe(output_df.head(50), use_container_width=True)
 
                     parquet_bytes = dataframe_to_parquet_bytes(output_df)
                     st.download_button(
-                        label="Baixar Parquet",
+                        label=t("download"),
                         data=parquet_bytes,
                         file_name=f"{subject_id}_{os.path.splitext(file.name)[0]}_pyfeat.parquet",
                         mime="application/vnd.apache.parquet",
@@ -254,5 +690,5 @@ if st.button("Iniciar Extração Py-FEAT", type="primary"):
                     os.remove(temp_video_path)
         
         # FIMMMMM da barra 
-        progress_bar.progress(1.0, text="Processamento de todos os vídeos concluído!")
-        st.info("Na próxima fase (Fase 3), vamos estruturar estes dados com os timestamps dos estímulos!")
+        progress_bar.progress(1.0, text=t("finished"))
+        st.info(t("finished"))
