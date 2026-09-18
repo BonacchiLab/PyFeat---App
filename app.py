@@ -191,23 +191,95 @@ st.markdown(
             border-radius: 0 8px 8px 0;
         }
 
+        .intro-hero {
+            max-width: 980px;
+            margin: 0 auto 1.25rem;
+            padding: 2.25rem 2.4rem 1.5rem;
+            border-radius: 14px;
+            background: rgba(27, 48, 54, 0.9);
+            border: 1px solid rgba(71, 104, 112, 0.6);
+            box-shadow: 0 18px 30px rgba(0, 0, 0, 0.18);
+        }
+
+        .intro-hero h1 {
+            margin-bottom: 0.65rem;
+        }
+
+        .intro-hero p {
+            margin: 0;
+            max-width: 760px;
+            color: #d7e4df;
+            font-size: 1.18rem;
+            line-height: 1.6;
+        }
+
+        .intro-sections {
+            max-width: 980px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 1rem;
+        }
+
+        .info-card {
+            background: var(--surface);
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            padding: 1.25rem 1.3rem 1.1rem;
+            box-shadow: 0 8px 18px rgba(0, 0, 0, 0.12);
+        }
+
+        .info-card h3 {
+            margin-top: 0;
+            margin-bottom: 0.8rem;
+            padding-bottom: 0.45rem;
+            border-bottom: 1px solid rgba(57, 73, 81, 0.9);
+            color: var(--ink);
+            font-size: 1.15rem;
+        }
+
+        .info-card p,
+        .info-card li {
+            color: var(--muted);
+            line-height: 1.65;
+            margin: 0.25rem 0;
+        }
+
+        .info-card ul {
+            margin: 0.5rem 0 0 1.15rem;
+            padding: 0;
+        }
+
         [data-testid="stButton"] button,
         [data-testid="stDownloadButton"] button {
-            border-radius: 6px;
-            font-weight: 600;
-            min-height: 2.7rem;
+            border-radius: 10px;
+            font-weight: 700;
+            min-height: 3.2rem;
+            padding: 0.8rem 1.6rem;
+            transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
         }
 
         [data-testid="stButton"] button[kind="primary"] {
-            background: var(--success);
-            border-color: var(--success);
+            background: linear-gradient(180deg, #39b36f 0%, var(--success) 100%);
+            border-color: #2d9b60;
             color: #ffffff;
+            font-size: 1.12rem;
+            letter-spacing: 0.01em;
+            box-shadow: 0 10px 22px rgba(47, 158, 103, 0.35);
         }
 
         [data-testid="stButton"] button[kind="primary"]:hover {
-            background: var(--success-dark);
+            background: linear-gradient(180deg, #34a867 0%, var(--success-dark) 100%);
             border-color: var(--success-dark);
             color: #ffffff;
+            transform: translateY(-1px);
+            box-shadow: 0 14px 26px rgba(36, 122, 80, 0.45);
+            filter: brightness(1.02);
+        }
+
+        [data-testid="stButton"] button[kind="primary"]:focus-visible {
+            outline: 3px solid rgba(255, 255, 255, 0.35);
+            outline-offset: 2px;
         }
 
         [data-testid="stDownloadButton"] button:hover {
@@ -247,10 +319,10 @@ TRANSLATIONS = {
         "portuguese": "Português",
         "english": "English",
         "title": "Análise de Expressões Faciais - Extração de dados através do Py-FEAT",
-        "intro_page_title": "Análise facial, com contexto e rigor",
-        "intro_page_body": "Esta aplicação transforma vídeos em dados estruturados sobre expressões faciais, Action Units, emoções e outros indicadores do Py-FEAT.",
+        "intro_page_title": "Facial Expression Analysis",
+        "intro_page_body": "Interface para a extração de \"workable data\" através de videos.",
         "intro_placeholder": "O conteúdo introdutório desta página será definido na próxima etapa.",
-        "go_workspace": "Prosseguir para a ferramenta de análise",
+        "go_workspace": "Ferramenta de Análise",
         "upload": "Upload de Dados e Identificação dos sujeitos",
         "upload_help": "Carregue os vídeos da sessão experimental",
         "subject_mapping": "**Mapeamento de Sujeitos por Vídeo:**",
@@ -301,10 +373,10 @@ TRANSLATIONS = {
         "portuguese": "Português",
         "english": "English",
         "title": "Facial Expression Analysis - Data Extraction with Py-FEAT",
-        "intro_page_title": "Facial analysis, with context and rigor",
-        "intro_page_body": "This application transforms videos into structured data about facial expressions, Action Units, emotions, and other Py-FEAT indicators.",
+        "intro_page_title": "Facial Expression Analysis",
+        "intro_page_body": "Interface for extracting \"workable data\" through videos.",
         "intro_placeholder": "The introduction content for this page will be defined in the next stage.",
-        "go_workspace": "Continue to the analysis workspace",
+        "go_workspace": "Analysis Tool",
         "upload": "Data Upload and Subject Identification",
         "upload_help": "Upload the videos from the experimental session",
         "subject_mapping": "**Subject Mapping by Video:**",
@@ -393,7 +465,37 @@ if page == "introduction":
             <h1>{t("intro_page_title")}</h1>
             <p>{t("intro_page_body")}</p>
         </section>
-        <div class="intro-note">{t("intro_placeholder")}</div>
+
+        <div class="intro-sections">
+            <div class="info-card">
+                <h3>Como funciona esta interface?</h3>
+                <p>Esta interface permite carregar vídeos, identificar os sujeitos, definir como os frames devem ser amostrados e extrair indicadores do Py-FEAT, como Action Units, emoções e métricas faciais. Todo o processo é guiado em etapas para reduzir erros e facilitar a análise.</p>
+            </div>
+
+            <div class="info-card">
+                <h3>O que necessita para funcionar?</h3>
+                <ul>
+                    <li>Vídeos em formatos compatíveis, como MP4.</li>
+                    <li>Identificação dos sujeitos associada a cada ficheiro.</li>
+                    <li>Definição do tipo de amostragem e do desenho experimental.</li>
+                    <li>Uma execução do detector Py-FEAT disponível no ambiente da aplicação.</li>
+                </ul>
+            </div>
+
+            <div class="info-card">
+                <h3>Que benefícios dá cada uma das maneiras de extração dos dados?</h3>
+                <ul>
+                    <li><strong>1 FPS média:</strong> reduz a quantidade de dados e cria uma estimativa estável por segundo.</li>
+                    <li><strong>1 FPS frame representativo:</strong> escolhe um frame característico da segunda para manter a velocidade e simplificar a interpretação.</li>
+                    <li><strong>Máxima resolução:</strong> preserva todos os frames e maximiza a granularidade analítica, ideal para estudos mais detalhados.</li>
+                </ul>
+            </div>
+
+            <div class="info-card">
+                <h3>O que significam cada uma das colunas do dataset do output?</h3>
+                <p>As colunas incluem identificadores do sujeito, tempo ou frame, métricas de Action Units, valores emocionais e indicadores faciais extraídos. Em conjunto, permitem transformar cada vídeo num conjunto de observações prontos para análise estatística e comparação entre condições experimentais.</p>
+            </div>
+        </div>
         """,
         unsafe_allow_html=True,
     )
