@@ -1,3 +1,4 @@
+import base64
 import math
 from io import BytesIO
 import streamlit as st
@@ -473,8 +474,10 @@ TRANSLATIONS = {
         "sampling_label": "Como deseja separar os frames para a análise?",
         "all_frames": "A cada frame (Máxima resolução)",
         "fast_fps": "1 FPS (rápido; frame representativo)",
-        "exact_fps": "1 FPS (média exata de todos os frames)",
-        "sampling_help": "O modo rápido analisa 1 frame por segundo. A média exata analisa todos os frames e é significativamente mais lenta.",
+        "custom_sampling": "Custom sampling",
+        "custom_sampling_fps": "Target sampling frequency (frames per second)",
+        "custom_sampling_help": "A frequência selecionada é aproximada e depende da taxa de frames do vídeo original.",
+        "sampling_help": "O modo rápido seleciona aproximadamente um frame representativo por segundo.",
         "time_prediction": "Previsão de Tempo de Processamento",
         "frames_analyzed": "Frames a Analisar",
         "output_rows": "Linhas no Output",
@@ -498,7 +501,7 @@ TRANSLATIONS = {
         "loading": "A carregar...",
         "preparing": "A preparar o processamento...",
         "processing_video": "A processar vídeo {current} de {total}: {name} (Sujeito: {subject})",
-        "extracting": "A extrair Action Units (a processar todos os frames e depois agregando conforme a seleção)...",
+        "extracting": "A extrair Action Units dos frames selecionados...",
         "completed_file": "Extração concluída para {name}!",
         "preview": "Pré-visualização dos dados finais ({rows} linhas) — {mode}:",
         "download": "Baixar Parquet",
@@ -528,8 +531,10 @@ TRANSLATIONS = {
         "sampling_label": "How should frames be selected for analysis?",
         "all_frames": "Every frame (Maximum resolution)",
         "fast_fps": "1 FPS (fast; representative frame)",
-        "exact_fps": "1 FPS (exact mean of all frames)",
-        "sampling_help": "Fast mode analyzes 1 frame per second. Exact mean analyzes every frame and is significantly slower.",
+        "custom_sampling": "Custom sampling",
+        "custom_sampling_fps": "Target sampling frequency (frames per second)",
+        "custom_sampling_help": "The selected frequency is approximate and depends on the source video's frame rate.",
+        "sampling_help": "Fast mode analyzes 1 frame per second using a representative frame.",
         "time_prediction": "Processing Time Estimate",
         "frames_analyzed": "Frames to Analyze",
         "output_rows": "Output Rows",
@@ -553,7 +558,7 @@ TRANSLATIONS = {
         "loading": "Loading...",
         "preparing": "Preparing processing...",
         "processing_video": "Processing video {current} of {total}: {name} (Subject: {subject})",
-        "extracting": "Extracting Action Units (processing all frames and aggregating according to the selection)...",
+        "extracting": "Extracting Action Units from the selected video frames...",
         "completed_file": "Extraction completed for {name}!",
         "preview": "Preview of final data ({rows} rows) — {mode}:",
         "download": "Download Parquet",
@@ -576,23 +581,7 @@ if page == "introduction":
         unsafe_allow_html=True,
     )
 
-if page == "workspace":
-    with st.sidebar:
-        language_name = st.selectbox(
-            "Idioma / Language",
-            ["Português", "English"],
-            index=0,
-            key="interface_language",
-        )
-else:
-    language_name = st.selectbox(
-        "Idioma / Language",
-        ["Português", "English"],
-        index=0,
-        key="interface_language",
-    )
-
-language = "en" if language_name == "English" else "pt"
+language = "en"
 
 
 def t(key, **values):
@@ -600,6 +589,9 @@ def t(key, **values):
 
 
 if page == "introduction":
+    with open(os.path.join(os.path.dirname(__file__), "Au-Reference.jpg"), "rb") as image_file:
+        au_reference_image = base64.b64encode(image_file.read()).decode("ascii")
+
     intro_guide = {
         "pt": """
         <nav class="guide-nav" aria-label="Navegação do guia">
@@ -699,9 +691,9 @@ if page == "introduction":
                 <ul>
                     <li><strong>Every frame (A cada frame):</strong> preserva a maior resolução temporal e é indicado para fenómenos rápidos, mas produz datasets maiores e demora mais tempo.</li>
                     <li><strong>1 FPS - representative frame (Frame representativo):</strong> seleciona aproximadamente um frame por segundo. É mais rápido e compacto, mas pode não capturar movimentos breves.</li>
-                    <li><strong>1 FPS - exact mean (Média exata):</strong> analisa os frames do segundo e calcula uma média. Reduz o volume de dados, mas suaviza alterações rápidas.</li>
+                    <li><strong>Custom sampling:</strong> define uma frequência-alvo em frames por segundo. A frequência real é aproximada e depende da taxa de frames do vídeo.</li>
                 </ul>
-                <div class="guide-note"><p>Escolha o modo com base na escala temporal da sua hipótese. Se a expressão relevante pode durar apenas alguns frames, a média por segundo pode ocultá-la.</p></div>
+                <div class="guide-note"><p>Escolha o modo com base na escala temporal da sua hipótese. Se a expressão relevante for breve, uma frequência customizada mais alta pode preservá-la.</p></div>
             </section>
 
             <section class="guide-section" id="metadata">
@@ -768,12 +760,11 @@ if page == "introduction":
                     <li>Check whether the video contains only the relevant participants, since multiple faces may be detected.</li>
                     <li>Keep quality and resolution similar across videos that will be compared.</li>
                 </ul>
-                <div class="guide-note"><p>Py-Feat makes frame-by-frame predictions. A detection in one frame does not guarantee that the same face will be identified in exactly the same way in every later frame.</p></div>
             </section>
 
             <section class="guide-section" id="understanding-output">
                 <h2>Understanding the Output Dataset</h2>
-                <p>The Parquet file contains Py-Feat predictions and identifiers added by this interface. The exact set of columns depends on the detector and the available models.</p>
+                <p>The Parquet file contains Py-Feat predictions and identifiers added by this interface.</p>
                 <ul>
                     <li><strong>subject_id:</strong> participant identifier assigned during upload.</li>
                     <li><strong>input_file:</strong> source video name.</li>
@@ -784,7 +775,7 @@ if page == "introduction":
                     <li><strong>stimulus:</strong> experimental marker assigned to rows inside the defined windows.</li>
                     <li><strong>Action Units, emotions, landmarks, and other metrics:</strong> facial predictions produced by the Py-Feat model.</li>
                 </ul>
-                <div class="guide-note"><p>Always check the column names before analysis. Different detectors do not necessarily produce the same categories or number of landmarks.</p></div>
+                <div class="guide-note"><p>Always check the column names before analysis.</p></div>
             </section>
 
             <section class="guide-section" id="action-units">
@@ -806,22 +797,19 @@ if page == "introduction":
                     <li><strong>AU25 - Lips Part:</strong> separating the lips without necessarily involving the jaw.</li>
                 </ul>
                 <p class="guide-links">For the complete searchable table, see the <a href="https://py-feat.org/pages/au_reference/" target="_blank">official Py-Feat AU Reference</a>.</p>
-                <div class="image-placeholder">Recommended image: a facial diagram showing the main Action Units and their corresponding muscle regions.</div>
+                <img src="data:image/jpeg;base64,AU_REFERENCE_IMAGE" alt="Facial Action Unit reference diagram" style="display: block; max-width: min(100%, 520px); height: auto; margin: 1rem auto 0; border-radius: 7px;">
             </section>
 
             <section class="guide-section" id="emotions">
                 <h2>Emotions and Facial Metrics</h2>
-                <p>Emotion models estimate categories such as <strong>Neutral, Happy, Sad, Surprise, Fear, Disgust</strong>, and <strong>Anger</strong>. These estimates are based on the facial appearance observed by the model.</p>
+                <p>This application uses Py-Feat's default emotion model to estimate facial-expression categories such as <strong>Neutral, Happy, Sad, Surprise, Fear, Disgust</strong>, and <strong>Anger</strong>. These estimates are based on the facial appearance observed in each video frame.</p>
                 <p>Probabilities or values should be treated as indicators for analysis, not as direct measurements of a person's internal emotional state. Interpretation should consider context, individual variability, and the experimental design.</p>
-                <p>Depending on the detector, outputs may also include <strong>valence</strong>, <strong>arousal</strong>, <strong>gaze</strong>, and <strong>head pose</strong>. Use these variables only when they are present in the downloaded dataset.</p>
             </section>
 
             <section class="guide-section" id="landmarks">
                 <h2>Facial Landmarks and Face Detection</h2>
                 <p><strong>Facial landmarks</strong> are reference points placed at specific facial locations, such as the eyebrows, eyes, nose, mouth, and facial outline. They describe facial geometry and movement over time.</p>
                 <p><strong>Face detection</strong> locates the face in the image and may provide a bounding box, or <strong>face box</strong>. Landmarks and face boxes help verify whether the face was detected correctly and support the study of facial movement.</p>
-                <div class="guide-note"><p>The number and numbering of landmarks depend on the model. Do not directly compare coordinates from different models without checking their conventions.</p></div>
-                <div class="image-placeholder">Recommended image: an example face with numbered landmarks and the face box highlighted.</div>
             </section>
 
             <section class="guide-section" id="sampling">
@@ -829,9 +817,9 @@ if page == "introduction":
                 <ul>
                     <li><strong>Every frame:</strong> preserves the highest temporal resolution and is useful for fast phenomena, but creates larger datasets and takes longer.</li>
                     <li><strong>1 FPS - representative frame:</strong> selects approximately one frame per second. It is faster and more compact, but may miss brief movements.</li>
-                    <li><strong>1 FPS - exact mean:</strong> analyzes the frames in each second and calculates a mean. It reduces data volume, but smooths rapid changes.</li>
+                    <li><strong>Custom sampling:</strong> sets a target frequency in frames per second. The actual frequency is approximate and depends on the video's frame rate.</li>
                 </ul>
-                <div class="guide-note"><p>Choose the mode based on the time scale of your hypothesis. If the relevant expression may last only a few frames, a one-second mean may hide it.</p></div>
+                <div class="guide-note"><p>Choose the mode based on the time scale of your hypothesis. If a relevant expression is brief, a higher custom frequency may preserve it.</p></div>
             </section>
 
             <section class="guide-section" id="metadata">
@@ -862,6 +850,7 @@ if page == "introduction":
         </div>
         """,
     }
+    intro_guide["en"] = intro_guide["en"].replace("AU_REFERENCE_IMAGE", au_reference_image)
 
     st.markdown(
         f"""
@@ -884,7 +873,7 @@ if page == "introduction":
 sampling_labels = {
     t("all_frames"): "all_frames",
     t("fast_fps"): "fast_fps",
-    t("exact_fps"): "exact_fps",
+    t("custom_sampling"): "custom_fps",
 }
 
 #Core coisas e cenas base e tal
@@ -915,6 +904,10 @@ def format_seconds_to_clock(seconds):
     minutes = int(seconds // 60)
     secs = int(seconds % 60)
     return f"{minutes:02d}:{secs:02d}"
+
+
+def calculate_skip_frames(video_fps, target_fps):
+    return max(1, int(round(float(video_fps) / float(target_fps))))
 
 
 def aggregate_by_second(df, fps):
@@ -950,8 +943,8 @@ def aggregate_by_second(df, fps):
 
 
 def prepare_frame_dataframe(df_raw, fps, sampling_mode):
-    """Return a dataframe that is either raw per-frame or aggregated per second."""
-    if sampling_mode == "all_frames":
+    """Return per-frame rows or aggregate the 1 FPS representative samples."""
+    if sampling_mode in {"all_frames", "custom_fps"}:
         df_out = df_raw.copy()
         df_out["time_sec"] = pd.to_numeric(df_out["frame"], errors="coerce") / float(fps)
         df_out["approx_time"] = df_out["time_sec"].apply(format_seconds_to_clock)
@@ -1032,7 +1025,23 @@ with st.sidebar:
         index=1,
     )
     sampling_mode = sampling_labels[sampling_rate]
-    st.caption(t("sampling_help"))
+    custom_sampling_fps = 1.0
+    if sampling_mode == "custom_fps":
+        custom_sampling_fps = st.number_input(
+            t("custom_sampling_fps"),
+            min_value=0.1,
+            value=1.0,
+            step=0.1,
+            key="custom_sampling_frequency",
+        )
+        st.caption(t("custom_sampling_help"))
+    elif sampling_mode == "fast_fps":
+        st.caption(t("sampling_help"))
+    sampling_display = (
+        f"{t('custom_sampling')} ({custom_sampling_fps:g} FPS)"
+        if sampling_mode == "custom_fps"
+        else sampling_rate
+    )
     
     st.markdown("---")
     st.subheader(t("time_prediction"))
@@ -1045,16 +1054,17 @@ with st.sidebar:
             vid_fps = info["fps"]
             vid_frames = info["frames"]
 
-            if sampling_mode in {"all_frames", "exact_fps"}:
+            if sampling_mode == "all_frames":
                 skip = 1
                 effective_rows = vid_frames
             else:
-                skip = max(1, int(round(vid_fps)))
-                effective_rows = max(1, int(math.ceil(vid_frames / max(1.0, vid_fps))))
+                target_fps = custom_sampling_fps if sampling_mode == "custom_fps" else 1.0
+                skip = calculate_skip_frames(vid_fps, target_fps)
+                effective_rows = int(math.ceil(vid_frames / skip)) if vid_frames else 0
 
             videos_info[file_name]["skip_frames"] = skip
             videos_info[file_name]["sampling_mode"] = sampling_mode
-            frames_to_analyze += vid_frames // skip
+            frames_to_analyze += effective_rows
             output_rows += effective_rows
 
         tempo_estimado_segundos = frames_to_analyze * 0.8
@@ -1172,7 +1182,7 @@ if st.button(t("start_extraction"), type="primary"):
 
 for result in processed_results.values():
     st.success(t("completed_file", name=result["dataframe"]["input_file"].iloc[0]))
-    st.write(t("preview", rows=result["dataframe"].shape[0], mode=sampling_rate))
+    st.write(t("preview", rows=result["dataframe"].shape[0], mode=sampling_display))
     st.dataframe(result["dataframe"].head(50), use_container_width=True)
     st.download_button(
         label=t("download"),
