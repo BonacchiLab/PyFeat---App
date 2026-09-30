@@ -228,22 +228,39 @@ st.markdown(
             gap: 1rem;
         }
 
-        .guide-layout {
+        .st-key-intro-guide-layout {
             max-width: 980px;
             margin: 0 auto;
-            display: grid;
-            grid-template-columns: 220px minmax(0, 1fr);
-            gap: 1.5rem;
-            align-items: start;
+        }
+
+        div:has(> .st-key-intro-guide-sticky) {
+            position: sticky;
+            top: 1.5rem;
+            z-index: 10;
         }
 
         .guide-nav {
-            position: sticky;
-            top: 1.5rem;
             background: #18262c;
             border: 1px solid var(--line);
             border-radius: 10px;
             padding: 1rem;
+        }
+
+        .st-key-intro-nav-workspace-button [data-testid="stButton"] button[kind="primary"] {
+            background: #155b37;
+            border-color: #155b37;
+            color: #ffffff;
+            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.28);
+        }
+
+        .st-key-intro-nav-workspace-button [data-testid="stButton"] button[kind="primary"]:hover {
+            background: #104a2d;
+            border-color: #104a2d;
+            color: #ffffff;
+        }
+
+        .st-key-intro-nav-workspace-button [data-testid="stButton"] {
+            width: 100%;
         }
 
         .guide-nav h2 {
@@ -344,12 +361,34 @@ st.markdown(
         }
 
         @media (max-width: 800px) {
-            .guide-layout {
-                grid-template-columns: 1fr;
+            div:has(> .st-key-intro-guide-sticky) {
+                position: static;
             }
 
+            div:has(> .st-key-intro-nav-workspace-button) {
+                position: fixed;
+                left: 1rem;
+                right: auto;
+                bottom: max(1rem, env(safe-area-inset-bottom));
+                top: auto;
+                width: calc(100vw - 2rem);
+                z-index: 1000;
+            }
+        }
+
+        @media (min-width: 801px) and (max-height: 700px) {
             .guide-nav {
-                position: static;
+                padding: 0.65rem;
+            }
+
+            .guide-nav h2 {
+                margin-bottom: 0.35rem;
+            }
+
+            .guide-nav a {
+                font-size: 0.78rem;
+                line-height: 1.15;
+                padding: 0.18rem 0.35rem;
             }
         }
 
@@ -433,7 +472,7 @@ st.markdown(
 
         @media (max-width: 800px) {
             .block-container {
-                padding: 2rem 1rem 3rem;
+                padding: 2rem 1rem 6rem;
             }
 
             .intro-hero {
@@ -841,7 +880,6 @@ if page == "introduction":
                     <li>Do not treat an emotion prediction as definitive evidence of an emotional state.</li>
                     <li>Record the sampling mode, stimulus intervals, and any data-exclusion decisions.</li>
                     <li>Take extra care with occlusion, glasses, masks, lighting, pose, low resolution, and multiple faces.</li>
-                    <li>Avoid directly comparing results from different models or versions without documenting the difference.</li>
                     <li>Consult the official documentation and model licenses before reusing results in other contexts.</li>
                 </ul>
                 <div class="guide-note"><p>Py-Feat recommends checking detections carefully. Computer-vision models can produce unexpected results in real-world videos, even when they perform well on benchmarks.</p></div>
@@ -863,8 +901,28 @@ if page == "introduction":
         """,
         unsafe_allow_html=True,
     )
-    st.html(f"<div class=\"guide-layout\">{intro_guide[language]}</div>")
-    if st.button(t("go_workspace"), type="primary", use_container_width=True):
+    guide_navigation, guide_content = intro_guide[language].split('<div class="guide-content">', 1)
+    with st.container(key="intro-guide-layout"):
+        navigation_column, content_column = st.columns([0.72, 2.28], gap="large")
+        with navigation_column:
+            with st.container(key="intro-guide-sticky"):
+                st.html(guide_navigation)
+                with st.container(key="intro-nav-workspace-button"):
+                    navigation_workspace_clicked = st.button(
+                        t("go_workspace"),
+                        type="primary",
+                        use_container_width=True,
+                        key="intro_workspace_navigation_button",
+                    )
+        with content_column:
+            st.html(f'<div class="guide-content">{guide_content}')
+    footer_workspace_clicked = st.button(
+        t("go_workspace"),
+        type="primary",
+        use_container_width=True,
+        key="intro_workspace_footer_button",
+    )
+    if navigation_workspace_clicked or footer_workspace_clicked:
         st.session_state["app_page"] = "workspace"
         st.rerun()
     st.stop()
