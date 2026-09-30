@@ -9,7 +9,7 @@ import torch
 from feat import Detector
 
 #Design basico da pagina 
-st.set_page_config(page_title="User-Friendly Py-FEAT Interface", layout="wide")
+st.set_page_config(page_title="FEDET powered by py-feat", layout="wide")
 st.markdown(
     """
     <style>
@@ -172,15 +172,23 @@ st.markdown(
         .intro-hero h1 {
             color: #f1f6f4;
             max-width: 760px;
-            margin: 0 0 1rem;
+            margin: 0;
         }
 
-        .intro-hero p {
+        .intro-hero .hero-subtitle {
             color: #d0dfda;
-            font-size: 1.08rem;
+            font-size: 1.18rem;
             max-width: 680px;
             line-height: 1.65;
-            margin: 0;
+            margin: 0.45rem auto 0;
+        }
+
+        .intro-hero .hero-powered-by {
+            color: #a9bbb6;
+            font-size: 0.9rem;
+            font-weight: 500;
+            letter-spacing: 0;
+            margin: 0.45rem auto 0;
         }
 
         .intro-note {
@@ -196,21 +204,19 @@ st.markdown(
             margin: 0 auto 1.25rem;
             padding: 2.25rem 2.4rem 1.5rem;
             border-radius: 14px;
-            background: rgba(27, 48, 54, 0.9);
-            border: 1px solid rgba(71, 104, 112, 0.6);
-            box-shadow: 0 18px 30px rgba(0, 0, 0, 0.18);
+            background: #1b3036;
+            border: 1px solid #476870;
+            border-top: 3px solid var(--accent);
+            box-shadow: 0 18px 30px rgba(0, 0, 0, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+            text-align: center;
         }
 
         .intro-hero h1 {
             margin-bottom: 0.65rem;
-        }
-
-        .intro-hero p {
-            margin: 0;
-            max-width: 760px;
-            color: #d7e4df;
-            font-size: 1.18rem;
-            line-height: 1.6;
+            margin-left: auto;
+            margin-right: auto;
+            font-size: 4.5rem;
+            line-height: 1;
         }
 
         .intro-sections {
@@ -219,6 +225,131 @@ st.markdown(
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
             gap: 1rem;
+        }
+
+        .guide-layout {
+            max-width: 980px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: 220px minmax(0, 1fr);
+            gap: 1.5rem;
+            align-items: start;
+        }
+
+        .guide-nav {
+            position: sticky;
+            top: 1.5rem;
+            background: #18262c;
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            padding: 1rem;
+        }
+
+        .guide-nav h2 {
+            margin: 0 0 0.75rem;
+            padding: 0;
+            border: 0;
+            font-size: 0.95rem;
+            color: var(--ink);
+        }
+
+        .guide-nav a {
+            display: block;
+            color: var(--muted);
+            font-size: 0.86rem;
+            line-height: 1.35;
+            padding: 0.42rem 0.5rem;
+            border-radius: 5px;
+            text-decoration: none;
+        }
+
+        .guide-nav a:hover {
+            color: var(--ink);
+            background: #263940;
+        }
+
+        .guide-content {
+            min-width: 0;
+        }
+
+        .guide-section {
+            scroll-margin-top: 1.25rem;
+            background: var(--surface);
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            padding: 1.35rem 1.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .guide-section h2 {
+            margin: 0 0 0.85rem;
+            padding: 0 0 0.65rem;
+            border-bottom: 1px solid var(--line);
+            color: var(--ink);
+            font-size: 1.35rem;
+        }
+
+        .guide-section h3 {
+            margin: 1.15rem 0 0.35rem;
+            padding: 0;
+            border: 0;
+            color: var(--ink);
+            font-size: 1rem;
+        }
+
+        .guide-section p,
+        .guide-section li {
+            color: var(--muted);
+            line-height: 1.65;
+        }
+
+        .guide-section p {
+            margin: 0.45rem 0;
+        }
+
+        .guide-section ul,
+        .guide-section ol {
+            margin: 0.55rem 0 0.25rem 1.2rem;
+            padding: 0;
+        }
+
+        .guide-section strong {
+            color: var(--ink);
+        }
+
+        .guide-note {
+            background: #18262c;
+            border-left: 3px solid var(--accent);
+            border-radius: 0 6px 6px 0;
+            padding: 0.75rem 0.9rem;
+            margin-top: 0.9rem;
+        }
+
+        .guide-note p {
+            margin: 0;
+        }
+
+        .image-placeholder {
+            border: 1px dashed #536b73;
+            border-radius: 7px;
+            color: #9eb0ac;
+            padding: 0.8rem 1rem;
+            margin-top: 0.85rem;
+            font-size: 0.9rem;
+        }
+
+        .guide-links a {
+            color: #d6a06f;
+        }
+
+        @media (max-width: 800px) {
+            .guide-layout {
+                grid-template-columns: 1fr;
+            }
+
+            .guide-nav {
+                position: static;
+            }
         }
 
         .info-card {
@@ -303,6 +434,14 @@ st.markdown(
             .block-container {
                 padding: 2rem 1rem 3rem;
             }
+
+            .intro-hero {
+                padding: 2rem 1.25rem 1.5rem;
+            }
+
+            .intro-hero h1 {
+                font-size: 3rem;
+            }
         }
     </style>
     """,
@@ -318,9 +457,10 @@ TRANSLATIONS = {
         "home": "Voltar à página de introdução",
         "portuguese": "Português",
         "english": "English",
-        "title": "Análise de Expressões Faciais - Extração de dados através do Py-FEAT",
-        "intro_page_title": "Facial Expression Analysis",
-        "intro_page_body": "Interface para a extração de \"workable data\" através de videos.",
+        "title": "FEDET - Facial Expression Data Extraction Tool powered by py-feat",
+        "intro_page_title": "FEDET",
+        "intro_page_body": "Facial Expression Data Extraction Tool",
+        "intro_page_powered_by": "powered by py-feat",
         "intro_placeholder": "O conteúdo introdutório desta página será definido na próxima etapa.",
         "go_workspace": "Ferramenta de Análise",
         "upload": "Upload de Dados e Identificação dos sujeitos",
@@ -372,9 +512,10 @@ TRANSLATIONS = {
         "home": "Return to the introduction page",
         "portuguese": "Português",
         "english": "English",
-        "title": "Facial Expression Analysis - Data Extraction with Py-FEAT",
-        "intro_page_title": "Facial Expression Analysis",
-        "intro_page_body": "Interface for extracting \"workable data\" through videos.",
+        "title": "FEDET - Facial Expression Data Extraction Tool powered by py-feat",
+        "intro_page_title": "FEDET",
+        "intro_page_body": "Facial Expression Data Extraction Tool",
+        "intro_page_powered_by": "powered by py-feat",
         "intro_placeholder": "The introduction content for this page will be defined in the next stage.",
         "go_workspace": "Analysis Tool",
         "upload": "Data Upload and Subject Identification",
@@ -459,46 +600,281 @@ def t(key, **values):
 
 
 if page == "introduction":
+    intro_guide = {
+        "pt": """
+        <nav class="guide-nav" aria-label="Navegação do guia">
+            <h2>Neste guia</h2>
+            <a href="#getting-started">Como começar</a>
+            <a href="#preparing-videos">Preparar os vídeos</a>
+            <a href="#understanding-output">Compreender o dataset de output</a>
+            <a href="#action-units">Action Units (Unidades de Ação Facial)</a>
+            <a href="#au-reference">Referência de Action Units</a>
+            <a href="#emotions">Emoções e métricas faciais</a>
+            <a href="#landmarks">Landmarks faciais e deteção do rosto</a>
+            <a href="#sampling">Modos de amostragem</a>
+            <a href="#metadata">Metadados experimentais e estímulos</a>
+            <a href="#good-practices">Boas práticas e limitações</a>
+        </nav>
+        <div class="guide-content">
+            <section class="guide-section" id="getting-started">
+                <h2>Como começar</h2>
+                <p>Esta interface transforma vídeos em dados estruturados sobre a atividade facial ao longo do tempo. Não é necessário programar: basta seguir as etapas na área de análise.</p>
+                <ol>
+                    <li>Carregue um ou mais vídeos nos formatos suportados.</li>
+                    <li>Atribua um <strong>Subject ID (ID do Sujeito)</strong> a cada vídeo.</li>
+                    <li>Escolha o modo de amostragem adequado à sua pergunta de investigação.</li>
+                    <li>Opcionalmente, defina os intervalos dos estímulos experimentais.</li>
+                    <li>Selecione <strong>Extract data (Extrair dados)</strong>, aguarde o processamento e descarregue cada ficheiro Parquet.</li>
+                </ol>
+                <div class="guide-note"><p>O resultado é um dataset em que cada linha representa uma observação facial num frame ou num intervalo de um segundo.</p></div>
+            </section>
+
+            <section class="guide-section" id="preparing-videos">
+                <h2>Preparar os vídeos</h2>
+                <p>Para obter deteções mais consistentes, use vídeos em que o rosto está visível durante a maior parte do tempo e ocupa uma área razoável da imagem.</p>
+                <ul>
+                    <li>Evite iluminação muito escura, contraluz forte e alterações bruscas de exposição.</li>
+                    <li>Evite rostos muito pequenos, parcialmente ocultos ou excessivamente inclinados.</li>
+                    <li>Verifique se o vídeo contém apenas os participantes relevantes ou tenha em conta que podem ser detetados vários rostos.</li>
+                    <li>Mantenha uma qualidade e uma resolução semelhantes entre vídeos que serão comparados.</li>
+                </ul>
+                <div class="guide-note"><p>O Py-Feat faz previsões frame a frame. Por isso, uma deteção num frame não é uma garantia de que o mesmo rosto será identificado da mesma forma em todos os frames seguintes.</p></div>
+            </section>
+
+            <section class="guide-section" id="understanding-output">
+                <h2>Compreender o dataset de output</h2>
+                <p>O Parquet contém as previsões do Py-Feat e os identificadores acrescentados pela interface. O conjunto exato de colunas depende do detector e dos modelos disponíveis.</p>
+                <ul>
+                    <li><strong>subject_id:</strong> identificação atribuída ao participante no momento do upload.</li>
+                    <li><strong>input_file:</strong> nome do vídeo de origem.</li>
+                    <li><strong>frame:</strong> número do frame analisado no vídeo original.</li>
+                    <li><strong>time_sec:</strong> tempo aproximado do frame em segundos, no modo Every frame.</li>
+                    <li><strong>approx_time:</strong> representação legível do tempo, como 00:12.</li>
+                    <li><strong>second, time_start_sec e time_end_sec:</strong> intervalo temporal criado quando os dados são agregados por segundo.</li>
+                    <li><strong>stimulus:</strong> marcador experimental atribuído às linhas dentro dos intervalos definidos.</li>
+                    <li><strong>Action Units, emotions, landmarks e outras métricas:</strong> previsões faciais produzidas pelo modelo Py-Feat.</li>
+                </ul>
+                <div class="guide-note"><p>Leia sempre os nomes das colunas antes da análise. Nem todos os detectores produzem exatamente as mesmas categorias ou o mesmo número de landmarks.</p></div>
+            </section>
+
+            <section class="guide-section" id="action-units">
+                <h2>Action Units (Unidades de Ação Facial)</h2>
+                <p>Uma <strong>Action Unit (AU)</strong> descreve um movimento observável de uma região facial, de acordo com o <strong>Facial Action Coding System (FACS)</strong>. Por exemplo, uma AU pode representar a elevação de uma sobrancelha, o levantamento da bochecha ou a separação dos lábios.</p>
+                <p>As AUs descrevem movimento facial; não são emoções. Uma expressão emocional pode envolver várias AUs ao mesmo tempo, e a mesma AU pode aparecer em diferentes contextos ou expressões.</p>
+                <div class="guide-note"><p>Um valor elevado numa AU significa que o modelo encontrou maior evidência desse movimento facial. Não deve ser interpretado isoladamente como prova de uma emoção ou de uma intenção.</p></div>
+            </section>
+
+            <section class="guide-section" id="au-reference">
+                <h2>Referência de Action Units</h2>
+                <p>A referência oficial do Py-Feat relaciona cada AU com o nome FACS, a musculatura envolvida, expressões frequentemente associadas e os modelos que a suportam.</p>
+                <ul>
+                    <li><strong>AU1 - Inner Brow Raiser (Elevador interno da sobrancelha):</strong> movimento da parte interna das sobrancelhas.</li>
+                    <li><strong>AU4 - Brow Lowerer (Abaixador da sobrancelha):</strong> aproximação e descida das sobrancelhas.</li>
+                    <li><strong>AU6 - Cheek Raiser (Elevador da bochecha):</strong> elevação da bochecha e estreitamento da abertura dos olhos.</li>
+                    <li><strong>AU12 - Lip Corner Puller (Puxador do canto dos lábios):</strong> elevação dos cantos da boca.</li>
+                    <li><strong>AU15 - Lip Corner Depressor (Abaixador do canto dos lábios):</strong> descida dos cantos da boca.</li>
+                    <li><strong>AU25 - Lips Part (Separação dos lábios):</strong> abertura dos lábios sem necessariamente envolver a mandíbula.</li>
+                </ul>
+                <p class="guide-links">Para a tabela completa e pesquisável, consulte a <a href="https://py-feat.org/pages/au_reference/" target="_blank">AU Reference oficial do Py-Feat</a>.</p>
+                <div class="image-placeholder">Imagem recomendada: diagrama facial com as principais Action Units e as regiões musculares correspondentes.</div>
+            </section>
+
+            <section class="guide-section" id="emotions">
+                <h2>Emoções e métricas faciais</h2>
+                <p>Os modelos de emoção estimam categorias como <strong>Neutral, Happy, Sad, Surprise, Fear, Disgust</strong> e <strong>Anger</strong>. Estas estimativas são baseadas na aparência facial observada pelo modelo.</p>
+                <p>As probabilidades ou valores apresentados devem ser tratados como indicadores para análise, e não como uma medição direta do estado emocional interno de uma pessoa. A interpretação deve considerar o contexto, a variabilidade individual e o desenho experimental.</p>
+                <p>Dependendo do detector utilizado, também podem existir métricas como <strong>valence</strong> (valência) e <strong>arousal</strong> (ativação), <strong>gaze</strong> (direção do olhar) e <strong>head pose</strong> (orientação da cabeça). Apenas use estas variáveis quando estiverem presentes no dataset descarregado.</p>
+            </section>
+
+            <section class="guide-section" id="landmarks">
+                <h2>Landmarks faciais e deteção do rosto</h2>
+                <p><strong>Facial landmarks</strong> são pontos de referência colocados em posições específicas do rosto, como sobrancelhas, olhos, nariz, boca e contorno facial. Permitem descrever a geometria e o movimento do rosto ao longo do vídeo.</p>
+                <p>A <strong>face detection</strong> localiza o rosto na imagem e pode fornecer uma caixa delimitadora, ou <strong>face box</strong>. Os landmarks e a face box são úteis para verificar se o rosto foi encontrado corretamente e para estudar movimentos faciais.</p>
+                <div class="guide-note"><p>A numeração e a quantidade de landmarks dependem do modelo. Não compare diretamente coordenadas de modelos diferentes sem confirmar a sua convenção.</p></div>
+                <div class="image-placeholder">Imagem recomendada: exemplo de um rosto com landmarks numerados e a face box assinalada.</div>
+            </section>
+
+            <section class="guide-section" id="sampling">
+                <h2>Modos de amostragem</h2>
+                <ul>
+                    <li><strong>Every frame (A cada frame):</strong> preserva a maior resolução temporal e é indicado para fenómenos rápidos, mas produz datasets maiores e demora mais tempo.</li>
+                    <li><strong>1 FPS - representative frame (Frame representativo):</strong> seleciona aproximadamente um frame por segundo. É mais rápido e compacto, mas pode não capturar movimentos breves.</li>
+                    <li><strong>1 FPS - exact mean (Média exata):</strong> analisa os frames do segundo e calcula uma média. Reduz o volume de dados, mas suaviza alterações rápidas.</li>
+                </ul>
+                <div class="guide-note"><p>Escolha o modo com base na escala temporal da sua hipótese. Se a expressão relevante pode durar apenas alguns frames, a média por segundo pode ocultá-la.</p></div>
+            </section>
+
+            <section class="guide-section" id="metadata">
+                <h2>Metadados experimentais e estímulos</h2>
+                <p>Ative a opção de marcadores de estímulo quando quiser relacionar as deteções faciais com momentos específicos do protocolo experimental.</p>
+                <ol>
+                    <li>Indique quantos estímulos existem na sessão.</li>
+                    <li>Defina o nome de cada estímulo.</li>
+                    <li>Introduza os segundos de início e de fim relativamente ao início do vídeo.</li>
+                    <li>Verifique se os intervalos correspondem ao protocolo e se não existem sobreposições involuntárias.</li>
+                </ol>
+                <p>A coluna <strong>stimulus</strong> identifica o estímulo associado a cada linha. As linhas fora dos intervalos definidos ficam sem marcador.</p>
+            </section>
+
+            <section class="guide-section" id="good-practices">
+                <h2>Boas práticas e limitações</h2>
+                <ul>
+                    <li>Faça uma inspeção visual de uma amostra dos vídeos e dos resultados antes da análise estatística.</li>
+                    <li>Não trate uma previsão de emoção como prova definitiva de um estado emocional.</li>
+                    <li>Registe o modo de amostragem, os intervalos de estímulo e qualquer decisão de exclusão de dados.</li>
+                    <li>Tenha especial cuidado com oclusões, óculos, máscaras, iluminação, pose, baixa resolução e múltiplos rostos.</li>
+                    <li>Evite comparar diretamente resultados obtidos com modelos ou versões diferentes sem documentar essa diferença.</li>
+                    <li>Consulte a documentação oficial e as licenças dos modelos antes de reutilizar os resultados noutros contextos.</li>
+                </ul>
+                <div class="guide-note"><p>O Py-Feat recomenda verificar sempre as deteções. Modelos de visão computacional podem produzir resultados inesperados em vídeos reais, mesmo quando funcionam bem em benchmarks.</p></div>
+                <p class="guide-links">Referências: <a href="https://py-feat.org/" target="_blank">Py-Feat</a> | <a href="https://py-feat.org/pages/models/" target="_blank">Models</a> | <a href="https://py-feat.org/pages/faqs/" target="_blank">FAQs and known issues</a></p>
+            </section>
+        </div>
+        """,
+        "en": """
+        <nav class="guide-nav" aria-label="Guide navigation">
+            <h2>In this guide</h2>
+            <a href="#getting-started">Getting Started</a>
+            <a href="#preparing-videos">Preparing Your Videos</a>
+            <a href="#understanding-output">Understanding the Output Dataset</a>
+            <a href="#action-units">Action Units</a>
+            <a href="#au-reference">AU Reference</a>
+            <a href="#emotions">Emotions and Facial Metrics</a>
+            <a href="#landmarks">Facial Landmarks and Face Detection</a>
+            <a href="#sampling">Sampling Modes</a>
+            <a href="#metadata">Experimental Metadata and Stimuli</a>
+            <a href="#good-practices">Good Practices and Limitations</a>
+        </nav>
+        <div class="guide-content">
+            <section class="guide-section" id="getting-started">
+                <h2>Getting Started</h2>
+                <p>This interface transforms videos into structured data about facial activity over time. No programming is required: follow the steps in the analysis workspace.</p>
+                <ol>
+                    <li>Upload one or more videos in a supported format.</li>
+                    <li>Assign a <strong>Subject ID</strong> to each video.</li>
+                    <li>Choose the sampling mode that fits your research question.</li>
+                    <li>Optionally define the time windows for experimental stimuli.</li>
+                    <li>Select <strong>Extract data</strong>, wait for processing, and download each Parquet file.</li>
+                </ol>
+                <div class="guide-note"><p>The result is a dataset where each row represents a facial observation at a frame or within a one-second interval.</p></div>
+            </section>
+
+            <section class="guide-section" id="preparing-videos">
+                <h2>Preparing Your Videos</h2>
+                <p>For more consistent detections, use videos where the face is visible for most of the recording and occupies a reasonable area of the image.</p>
+                <ul>
+                    <li>Avoid very dark lighting, strong backlighting, and abrupt exposure changes.</li>
+                    <li>Avoid very small, partially occluded, or extremely rotated faces.</li>
+                    <li>Check whether the video contains only the relevant participants, since multiple faces may be detected.</li>
+                    <li>Keep quality and resolution similar across videos that will be compared.</li>
+                </ul>
+                <div class="guide-note"><p>Py-Feat makes frame-by-frame predictions. A detection in one frame does not guarantee that the same face will be identified in exactly the same way in every later frame.</p></div>
+            </section>
+
+            <section class="guide-section" id="understanding-output">
+                <h2>Understanding the Output Dataset</h2>
+                <p>The Parquet file contains Py-Feat predictions and identifiers added by this interface. The exact set of columns depends on the detector and the available models.</p>
+                <ul>
+                    <li><strong>subject_id:</strong> participant identifier assigned during upload.</li>
+                    <li><strong>input_file:</strong> source video name.</li>
+                    <li><strong>frame:</strong> frame number in the original video.</li>
+                    <li><strong>time_sec:</strong> approximate frame time in seconds in Every frame mode.</li>
+                    <li><strong>approx_time:</strong> readable time representation, such as 00:12.</li>
+                    <li><strong>second, time_start_sec, and time_end_sec:</strong> time interval created when data are aggregated by second.</li>
+                    <li><strong>stimulus:</strong> experimental marker assigned to rows inside the defined windows.</li>
+                    <li><strong>Action Units, emotions, landmarks, and other metrics:</strong> facial predictions produced by the Py-Feat model.</li>
+                </ul>
+                <div class="guide-note"><p>Always check the column names before analysis. Different detectors do not necessarily produce the same categories or number of landmarks.</p></div>
+            </section>
+
+            <section class="guide-section" id="action-units">
+                <h2>Action Units</h2>
+                <p>An <strong>Action Unit (AU)</strong> describes an observable movement in a facial region according to the <strong>Facial Action Coding System (FACS)</strong>. For example, an AU may represent eyebrow raising, cheek raising, or lip separation.</p>
+                <p>AUs describe facial movement; they are not emotions. An emotional expression can involve several AUs at once, and the same AU can occur in different contexts or expressions.</p>
+                <div class="guide-note"><p>A higher AU value means that the model found stronger evidence for that facial movement. It should not be interpreted alone as proof of an emotion or intention.</p></div>
+            </section>
+
+            <section class="guide-section" id="au-reference">
+                <h2>AU Reference</h2>
+                <p>The official Py-Feat reference connects each AU with its FACS name, involved musculature, commonly associated expressions, and supporting models.</p>
+                <ul>
+                    <li><strong>AU1 - Inner Brow Raiser:</strong> movement of the inner part of the eyebrows.</li>
+                    <li><strong>AU4 - Brow Lowerer:</strong> drawing the eyebrows together and downward.</li>
+                    <li><strong>AU6 - Cheek Raiser:</strong> raising the cheeks and narrowing the eye opening.</li>
+                    <li><strong>AU12 - Lip Corner Puller:</strong> raising the corners of the mouth.</li>
+                    <li><strong>AU15 - Lip Corner Depressor:</strong> lowering the corners of the mouth.</li>
+                    <li><strong>AU25 - Lips Part:</strong> separating the lips without necessarily involving the jaw.</li>
+                </ul>
+                <p class="guide-links">For the complete searchable table, see the <a href="https://py-feat.org/pages/au_reference/" target="_blank">official Py-Feat AU Reference</a>.</p>
+                <div class="image-placeholder">Recommended image: a facial diagram showing the main Action Units and their corresponding muscle regions.</div>
+            </section>
+
+            <section class="guide-section" id="emotions">
+                <h2>Emotions and Facial Metrics</h2>
+                <p>Emotion models estimate categories such as <strong>Neutral, Happy, Sad, Surprise, Fear, Disgust</strong>, and <strong>Anger</strong>. These estimates are based on the facial appearance observed by the model.</p>
+                <p>Probabilities or values should be treated as indicators for analysis, not as direct measurements of a person's internal emotional state. Interpretation should consider context, individual variability, and the experimental design.</p>
+                <p>Depending on the detector, outputs may also include <strong>valence</strong>, <strong>arousal</strong>, <strong>gaze</strong>, and <strong>head pose</strong>. Use these variables only when they are present in the downloaded dataset.</p>
+            </section>
+
+            <section class="guide-section" id="landmarks">
+                <h2>Facial Landmarks and Face Detection</h2>
+                <p><strong>Facial landmarks</strong> are reference points placed at specific facial locations, such as the eyebrows, eyes, nose, mouth, and facial outline. They describe facial geometry and movement over time.</p>
+                <p><strong>Face detection</strong> locates the face in the image and may provide a bounding box, or <strong>face box</strong>. Landmarks and face boxes help verify whether the face was detected correctly and support the study of facial movement.</p>
+                <div class="guide-note"><p>The number and numbering of landmarks depend on the model. Do not directly compare coordinates from different models without checking their conventions.</p></div>
+                <div class="image-placeholder">Recommended image: an example face with numbered landmarks and the face box highlighted.</div>
+            </section>
+
+            <section class="guide-section" id="sampling">
+                <h2>Sampling Modes</h2>
+                <ul>
+                    <li><strong>Every frame:</strong> preserves the highest temporal resolution and is useful for fast phenomena, but creates larger datasets and takes longer.</li>
+                    <li><strong>1 FPS - representative frame:</strong> selects approximately one frame per second. It is faster and more compact, but may miss brief movements.</li>
+                    <li><strong>1 FPS - exact mean:</strong> analyzes the frames in each second and calculates a mean. It reduces data volume, but smooths rapid changes.</li>
+                </ul>
+                <div class="guide-note"><p>Choose the mode based on the time scale of your hypothesis. If the relevant expression may last only a few frames, a one-second mean may hide it.</p></div>
+            </section>
+
+            <section class="guide-section" id="metadata">
+                <h2>Experimental Metadata and Stimuli</h2>
+                <p>Enable stimulus markers when you want to relate facial detections to specific moments in the experimental protocol.</p>
+                <ol>
+                    <li>Indicate how many stimuli are in the session.</li>
+                    <li>Define the name of each stimulus.</li>
+                    <li>Enter the start and end seconds relative to the beginning of the video.</li>
+                    <li>Check that the intervals match the protocol and that there are no unintended overlaps.</li>
+                </ol>
+                <p>The <strong>stimulus</strong> column identifies the stimulus associated with each row. Rows outside the defined intervals remain unlabelled.</p>
+            </section>
+
+            <section class="guide-section" id="good-practices">
+                <h2>Good Practices and Limitations</h2>
+                <ul>
+                    <li>Visually inspect a sample of the videos and results before statistical analysis.</li>
+                    <li>Do not treat an emotion prediction as definitive evidence of an emotional state.</li>
+                    <li>Record the sampling mode, stimulus intervals, and any data-exclusion decisions.</li>
+                    <li>Take extra care with occlusion, glasses, masks, lighting, pose, low resolution, and multiple faces.</li>
+                    <li>Avoid directly comparing results from different models or versions without documenting the difference.</li>
+                    <li>Consult the official documentation and model licenses before reusing results in other contexts.</li>
+                </ul>
+                <div class="guide-note"><p>Py-Feat recommends checking detections carefully. Computer-vision models can produce unexpected results in real-world videos, even when they perform well on benchmarks.</p></div>
+                <p class="guide-links">References: <a href="https://py-feat.org/" target="_blank">Py-Feat</a> | <a href="https://py-feat.org/pages/models/" target="_blank">Models</a> | <a href="https://py-feat.org/pages/faqs/" target="_blank">FAQs and known issues</a></p>
+            </section>
+        </div>
+        """,
+    }
+
     st.markdown(
         f"""
         <section class="intro-hero">
             <h1>{t("intro_page_title")}</h1>
-            <p>{t("intro_page_body")}</p>
+            <p class="hero-subtitle">{t("intro_page_body")}</p>
+            <p class="hero-powered-by">{t("intro_page_powered_by")}</p>
         </section>
 
-        <div class="intro-sections">
-            <div class="info-card">
-                <h3>Como funciona esta interface?</h3>
-                <p>Esta interface permite carregar vídeos, identificar os sujeitos, definir como os frames devem ser amostrados e extrair indicadores do Py-FEAT, como Action Units, emoções e métricas faciais. Todo o processo é guiado em etapas para reduzir erros e facilitar a análise.</p>
-            </div>
-
-            <div class="info-card">
-                <h3>O que necessita para funcionar?</h3>
-                <ul>
-                    <li>Vídeos em formatos compatíveis, como MP4.</li>
-                    <li>Identificação dos sujeitos associada a cada ficheiro.</li>
-                    <li>Definição do tipo de amostragem e do desenho experimental.</li>
-                    <li>Uma execução do detector Py-FEAT disponível no ambiente da aplicação.</li>
-                </ul>
-            </div>
-
-            <div class="info-card">
-                <h3>Que benefícios dá cada uma das maneiras de extração dos dados?</h3>
-                <ul>
-                    <li><strong>1 FPS média:</strong> reduz a quantidade de dados e cria uma estimativa estável por segundo.</li>
-                    <li><strong>1 FPS frame representativo:</strong> escolhe um frame característico da segunda para manter a velocidade e simplificar a interpretação.</li>
-                    <li><strong>Máxima resolução:</strong> preserva todos os frames e maximiza a granularidade analítica, ideal para estudos mais detalhados.</li>
-                </ul>
-            </div>
-
-            <div class="info-card">
-                <h3>O que significam cada uma das colunas do dataset do output?</h3>
-                <p>As colunas incluem identificadores do sujeito, tempo ou frame, métricas de Action Units, valores emocionais e indicadores faciais extraídos. Em conjunto, permitem transformar cada vídeo num conjunto de observações prontos para análise estatística e comparação entre condições experimentais.</p>
-            </div>
-        </div>
         """,
         unsafe_allow_html=True,
     )
+    st.html(f"<div class=\"guide-layout\">{intro_guide[language]}</div>")
     if st.button(t("go_workspace"), type="primary", use_container_width=True):
         st.session_state["app_page"] = "workspace"
         st.rerun()
@@ -728,6 +1104,8 @@ st.markdown("---")
 
 #Py-FEAT
 st.subheader(t("processing"))
+processed_results = st.session_state.setdefault("processed_results", {})
+
 if st.button(t("start_extraction"), type="primary"):
     
     missing_ids = [vid for vid, subj_id in video_subjects.items() if not subj_id.strip()]
@@ -738,6 +1116,7 @@ if st.button(t("start_extraction"), type="primary"):
         st.warning(t("missing_ids"))
     else:
         st.success(t("validated"))
+        processed_results.clear()
         
         with st.spinner(t("loading")):
             detector = load_detector()
@@ -775,17 +1154,13 @@ if st.button(t("start_extraction"), type="primary"):
                     output_df["subject_id"] = subject_id
                     output_df["input_file"] = file.name
 
-                    st.success(t("completed_file", name=file.name))
-                    st.write(t("preview", rows=output_df.shape[0], mode=sampling_rate))
-                    st.dataframe(output_df.head(50), use_container_width=True)
-
                     parquet_bytes = dataframe_to_parquet_bytes(output_df)
-                    st.download_button(
-                        label=t("download"),
-                        data=parquet_bytes,
-                        file_name=f"{subject_id}_{os.path.splitext(file.name)[0]}_pyfeat.parquet",
-                        mime="application/vnd.apache.parquet",
-                    )
+                    processed_results[file.name] = {
+                        "subject_id": subject_id,
+                        "dataframe": output_df,
+                        "parquet_bytes": parquet_bytes,
+                        "file_name": f"{subject_id}_{os.path.splitext(file.name)[0]}_pyfeat.parquet",
+                    }
 
             finally:
                 if os.path.exists(temp_video_path):
@@ -794,3 +1169,15 @@ if st.button(t("start_extraction"), type="primary"):
         # FIMMMMM da barra 
         progress_bar.progress(1.0, text=t("finished"))
         st.info(t("finished"))
+
+for result in processed_results.values():
+    st.success(t("completed_file", name=result["dataframe"]["input_file"].iloc[0]))
+    st.write(t("preview", rows=result["dataframe"].shape[0], mode=sampling_rate))
+    st.dataframe(result["dataframe"].head(50), use_container_width=True)
+    st.download_button(
+        label=t("download"),
+        data=result["parquet_bytes"],
+        file_name=result["file_name"],
+        mime="application/vnd.apache.parquet",
+        key=f"download_{result['file_name']}",
+    )
