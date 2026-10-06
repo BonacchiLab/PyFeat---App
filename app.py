@@ -1,5 +1,9 @@
 import base64
 import math
+import re
+import threading
+import time
+from functools import partial
 from io import BytesIO
 import streamlit as st
 import pandas as pd
@@ -8,6 +12,12 @@ import os
 import cv2
 import torch
 from feat import Detector
+import feat.detector as feat_detector
+import plotly.express as px
+import plotly.graph_objects as go
+
+DETECT_VIDEO_PROGRESS_LOCK = threading.Lock()
+BASELINE_SECONDS_PER_FRAME = 4.0
 
 #Design basico da pagina 
 st.set_page_config(page_title="FEDET powered by py-feat", layout="wide")
@@ -35,13 +45,66 @@ st.markdown(
             font-family: 'DM Sans', sans-serif;
         }
 
+        .st-key-global-navigation {
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            background: var(--canvas);
+            border-bottom: 1px solid var(--line);
+            padding: 0.2rem 0;
+            margin-bottom: 0.9rem;
+        }
+
+        .global-nav-brand {
+            color: var(--ink);
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 1.1rem;
+            font-weight: 700;
+            padding-left: 0.35rem;
+        }
+
+        .st-key-global-navigation [data-testid="stButton"] button {
+            min-height: 2.5rem;
+            border-radius: 5px;
+            white-space: nowrap;
+        }
+
+        .st-key-global-navigation [data-testid="stButton"] button p {
+            white-space: nowrap;
+        }
+
         [data-testid="stHeader"] {
             background: transparent;
+        }
+
+        a[aria-label="Link to heading"] {
+            display: none !important;
         }
 
         [data-testid="stSidebar"] {
             background: var(--deep);
             border-right: 1px solid #26363d;
+        }
+
+        [data-testid="stSidebarCollapsedControl"] button,
+        button[data-testid="stExpandSidebarButton"] {
+            width: auto !important;
+            min-width: max-content;
+            padding: 0.45rem 0.7rem !important;
+            border: 1px solid var(--line) !important;
+            border-radius: 6px !important;
+            background: var(--surface) !important;
+            gap: 0.4rem;
+        }
+
+        [data-testid="stSidebarCollapsedControl"] button::after,
+        button[data-testid="stExpandSidebarButton"]::after {
+            content: "Extraction Controls";
+            color: var(--ink);
+            font-family: 'DM Sans', sans-serif;
+            font-size: 0.82rem;
+            font-weight: 600;
+            white-space: nowrap;
         }
 
         [data-testid="stSidebar"] .stMarkdown,
@@ -286,6 +349,14 @@ st.markdown(
             background: #263940;
         }
 
+        .guide-nav-warning {
+            color: #ef5350;
+            font-size: 1.15em;
+            font-weight: 700;
+            margin-right: 0.3rem;
+            vertical-align: -0.04em;
+        }
+
         .guide-content {
             min-width: 0;
         }
@@ -332,6 +403,31 @@ st.markdown(
         }
 
         .guide-section strong {
+            color: var(--ink);
+        }
+
+        .guide-table-wrap {
+            overflow-x: auto;
+            margin-top: 0.75rem;
+        }
+
+        .guide-table {
+            width: 100%;
+            border-collapse: collapse;
+            color: var(--muted);
+            font-size: 0.86rem;
+        }
+
+        .guide-table th,
+        .guide-table td {
+            border: 1px solid var(--line);
+            padding: 0.65rem;
+            text-align: left;
+            vertical-align: top;
+        }
+
+        .guide-table th {
+            background: #18262c;
             color: var(--ink);
         }
 
@@ -512,7 +608,7 @@ TRANSLATIONS = {
         "controls": "Controlo de Extração",
         "sampling_label": "Como deseja separar os frames para a análise?",
         "all_frames": "A cada frame (Máxima resolução)",
-        "fast_fps": "1 FPS (rápido; frame representativo)",
+        "fast_fps": "1 FPS (frame representativo)",
         "custom_sampling": "Custom sampling",
         "custom_sampling_fps": "Target sampling frequency (frames per second)",
         "custom_sampling_help": "A frequência selecionada é aproximada e depende da taxa de frames do vídeo original.",
@@ -520,14 +616,16 @@ TRANSLATIONS = {
         "time_prediction": "Previsão de Tempo de Processamento",
         "frames_analyzed": "Frames a Analisar",
         "output_rows": "Linhas no Output",
-        "estimated_time": "Tempo estimado de análise: {minutes}m {seconds}s",
+        "estimated_time": "Tempo estimado",
+        "estimated_time_disclaimer": "O tempo de loading é apenas uma estimativa e ficará mais preciso após a primeira utilização.",
         "upload_for_estimate": "Faça upload de vídeos para calcular o tempo estimado.",
         "metadata": "Metadados do Desenho Experimental",
         "metadata_help": "Defina a quantidade de estímulos e os respetivos intervalos temporais (segundos) relativos ao vídeo. Exemplo: Estímulo 1 começa no segundo 4 e acaba no segundo 9.",
         "metadata_toggle": "Adicionar marcadores de estímulo ao dataset",
-        "metadata_explanation": "Quando um intervalo é definido, cada frame/linha dentro dessa janela temporal recebe o nome do estímulo numa nova coluna do dataset.",
+        "metadata_explanation": "O dataset terá uma coluna por estímulo; em intervalos sobrepostos, as colunas dos dois estímulos ficam preenchidas.",
         "stimulus_count": "Número de Estímulos na Sessão",
         "stimulus": "**Estímulo {number}**",
+        "stimulus_selector": "Estímulo",
         "stimulus_name": "Nome do estímulo",
         "stimulus_name_placeholder": "Ex: Baseline",
         "start": "Início (segundos)",
@@ -540,11 +638,39 @@ TRANSLATIONS = {
         "loading": "A carregar...",
         "preparing": "A preparar o processamento...",
         "processing_video": "A processar vídeo {current} de {total}: {name} (Sujeito: {subject})",
+        "processing_video_progress": "Vídeo {current}/{total}: {name} — {percent:.0f}% concluído; restante estimado: {minutes}m {seconds}s",
         "extracting": "A extrair Action Units dos frames selecionados...",
         "completed_file": "Extração concluída para {name}!",
         "preview": "Pré-visualização dos dados finais ({rows} linhas) — {mode}:",
         "download": "Baixar Parquet",
-        "finished": "Na próxima fase (Fase 3), vamos estruturar estes dados com os timestamps dos estímulos!",
+        "visualizations": "Visualizações interativas",
+        "quality_tab": "Qualidade dos dados",
+        "signals_tab": "Sinais ao longo do tempo",
+        "heatmap_tab": "Heatmap de AUs",
+        "output_rows_metric": "Linhas de output",
+        "frames_with_detections": "Frames com deteção",
+        "median_face_score": "FaceScore mediano",
+        "flagged_face_scores": "FaceScores abaixo do limite",
+        "confidence_threshold": "Sinalizar FaceScore abaixo de",
+        "quality_threshold_note": "Sinaliza para revisão; não remove dados automaticamente.",
+        "no_face_score": "Este output não contém FaceScore para avaliar a confiança da deteção.",
+        "signal_category": "Grupo de métricas",
+        "au_group": "Action Units",
+        "emotion_group": "Emoções",
+        "pose_group": "Pose da cabeça",
+        "select_signals": "Sinais a apresentar",
+        "stimulus_comparison": "Comparação antes/durante o estímulo",
+        "stimulus_metric": "Métrica para comparar",
+        "no_stimulus_comparison": "Adicione intervalos de estímulo e processe pelo menos um vídeo para comparar períodos.",
+        "stimulus_comparison_note": "Cada linha liga a média dos 5 segundos antes do estímulo à média durante o intervalo. Cada linha representa uma gravação, não um frame.",
+        "advanced_stimulus_analysis": "Análise avançada entre gravações",
+        "event_aligned_tab": "Trajetórias alinhadas ao estímulo",
+        "similarity_tab": "Similaridade das gravações",
+        "event_aligned_note": "O instante 0 marca o início do estímulo; a faixa sombreada mostra a sua duração. Cada linha representa uma gravação individual.",
+        "no_event_aligned_data": "Não há dados suficientes em torno deste estímulo para traçar as gravações.",
+        "similarity_note": "Pearson r compara a forma temporal da métrica, alinhada em 20 fases do estímulo, usando apenas fases observadas em ambas as gravações. Mede semelhança de trajetória, não emoção nem causalidade.",
+        "similarity_min_recordings": "São necessárias pelo menos duas gravações com dados suficientes neste intervalo.",
+        "finished": "Processamento concluído.",
     },
     "en": {
         "language": "Language",
@@ -569,7 +695,7 @@ TRANSLATIONS = {
         "controls": "Extraction Controls",
         "sampling_label": "How should frames be selected for analysis?",
         "all_frames": "Every frame (Maximum resolution)",
-        "fast_fps": "1 FPS (fast; representative frame)",
+        "fast_fps": "1 FPS (representative frame)",
         "custom_sampling": "Custom sampling",
         "custom_sampling_fps": "Target sampling frequency (frames per second)",
         "custom_sampling_help": "The selected frequency is approximate and depends on the source video's frame rate.",
@@ -577,14 +703,16 @@ TRANSLATIONS = {
         "time_prediction": "Processing Time Estimate",
         "frames_analyzed": "Frames to Analyze",
         "output_rows": "Output Rows",
-        "estimated_time": "Estimated analysis time: {minutes}m {seconds}s",
+        "estimated_time": "Estimated time",
+        "estimated_time_disclaimer": "Loading time is only an estimate and will become more accurate after the first use.",
         "upload_for_estimate": "Upload videos to calculate the estimated time.",
         "metadata": "Experimental Design Metadata",
         "metadata_help": "Define the number of stimuli and their time intervals (seconds) relative to the video. Example: Stimulus 1 starts at second 4 and ends at second 9.",
         "metadata_toggle": "Add stimulus markers to the dataset",
-        "metadata_explanation": "When a time interval is defined, every frame/row inside that window receives the stimulus name in a new dataset column.",
+        "metadata_explanation": "The dataset will have one column per stimulus; overlapping intervals will be marked in both columns.",
         "stimulus_count": "Number of Stimuli in the Session",
         "stimulus": "**Stimulus {number}**",
+        "stimulus_selector": "Stimulus",
         "stimulus_name": "Stimulus name",
         "stimulus_name_placeholder": "Example: Baseline",
         "start": "Start (seconds)",
@@ -597,11 +725,39 @@ TRANSLATIONS = {
         "loading": "Loading...",
         "preparing": "Preparing processing...",
         "processing_video": "Processing video {current} of {total}: {name} (Subject: {subject})",
+        "processing_video_progress": "Video {current}/{total}: {name} — {percent:.0f}% complete; estimated remaining: {minutes}m {seconds}s",
         "extracting": "Extracting Action Units from the selected video frames...",
         "completed_file": "Extraction completed for {name}!",
         "preview": "Preview of final data ({rows} rows) — {mode}:",
         "download": "Download Parquet",
-        "finished": "Next phase (Phase 3): structure these data with the stimulus timestamps!",
+        "visualizations": "Interactive visualizations",
+        "quality_tab": "Data quality",
+        "signals_tab": "Signals over time",
+        "heatmap_tab": "AU heatmap",
+        "output_rows_metric": "Output rows",
+        "frames_with_detections": "Frames with detections",
+        "median_face_score": "Median FaceScore",
+        "flagged_face_scores": "FaceScores below threshold",
+        "confidence_threshold": "Flag FaceScore below",
+        "quality_threshold_note": "Flags rows for review; it does not remove data.",
+        "no_face_score": "This output does not contain FaceScore to assess detection confidence.",
+        "signal_category": "Metric group",
+        "au_group": "Action Units",
+        "emotion_group": "Emotions",
+        "pose_group": "Head pose",
+        "select_signals": "Signals to display",
+        "stimulus_comparison": "Before/during stimulus comparison",
+        "stimulus_metric": "Metric to compare",
+        "no_stimulus_comparison": "Add stimulus windows and process at least one video to compare periods.",
+        "stimulus_comparison_note": "Each line connects the mean of the 5 seconds before a stimulus to the mean during its interval. Each line represents one recording, not one frame.",
+        "advanced_stimulus_analysis": "Advanced across-recording analysis",
+        "event_aligned_tab": "Event-aligned trajectories",
+        "similarity_tab": "Recording similarity",
+        "event_aligned_note": "Time 0 marks stimulus onset; the shaded band shows its duration. Each line represents one recording.",
+        "no_event_aligned_data": "There is not enough data around this stimulus to plot the recordings.",
+        "similarity_note": "Pearson r compares the temporal shape of a metric aligned to 20 stimulus phases, using only phases observed in both recordings. It measures trajectory similarity, not emotion or causality.",
+        "similarity_min_recordings": "At least two recordings with sufficient data in this interval are required.",
+        "finished": "Processing complete.",
     },
 }
 
@@ -625,6 +781,30 @@ language = "en"
 
 def t(key, **values):
     return TRANSLATIONS[language][key].format(**values)
+
+
+with st.container(key="global-navigation"):
+    nav_brand, nav_introduction, nav_extraction = st.columns([4, 2, 2.2], vertical_alignment="center")
+    with nav_brand:
+        st.markdown('<div class="global-nav-brand">FEDET</div>', unsafe_allow_html=True)
+    with nav_introduction:
+        if st.button(
+            t("introduction"),
+            type="primary" if page == "introduction" else "secondary",
+            use_container_width=True,
+            key="global_nav_introduction",
+        ) and page != "introduction":
+            st.session_state["app_page"] = "introduction"
+            st.rerun()
+    with nav_extraction:
+        if st.button(
+            t("go_workspace"),
+            type="primary" if page == "workspace" else "secondary",
+            use_container_width=True,
+            key="global_nav_extraction",
+        ) and page != "workspace":
+            st.session_state["app_page"] = "workspace"
+            st.rerun()
 
 
 if page == "introduction":
@@ -682,7 +862,7 @@ if page == "introduction":
                     <li><strong>time_sec:</strong> tempo aproximado do frame em segundos, no modo Every frame.</li>
                     <li><strong>approx_time:</strong> representação legível do tempo, como 00:12.</li>
                     <li><strong>second, time_start_sec e time_end_sec:</strong> intervalo temporal criado quando os dados são agregados por segundo.</li>
-                    <li><strong>stimulus:</strong> marcador experimental atribuído às linhas dentro dos intervalos definidos.</li>
+                    <li><strong>Stimulus_1, Stimulus_2, etc.:</strong> uma coluna por estímulo; uma linha pode estar marcada em várias colunas quando os intervalos se sobrepõem.</li>
                     <li><strong>Action Units, emotions, landmarks e outras métricas:</strong> previsões faciais produzidas pelo modelo Py-Feat.</li>
                 </ul>
                 <div class="guide-note"><p>Leia sempre os nomes das colunas antes da análise. Nem todos os detectores produzem exatamente as mesmas categorias ou o mesmo número de landmarks.</p></div>
@@ -742,9 +922,9 @@ if page == "introduction":
                     <li>Indique quantos estímulos existem na sessão.</li>
                     <li>Defina o nome de cada estímulo.</li>
                     <li>Introduza os segundos de início e de fim relativamente ao início do vídeo.</li>
-                    <li>Verifique se os intervalos correspondem ao protocolo e se não existem sobreposições involuntárias.</li>
+                    <li>Verifique se os intervalos correspondem ao protocolo; sobreposições são preservadas em colunas separadas.</li>
                 </ol>
-                <p>A coluna <strong>stimulus</strong> identifica o estímulo associado a cada linha. As linhas fora dos intervalos definidos ficam sem marcador.</p>
+                <p>O dataset inclui uma coluna <strong>Stimulus_1</strong>, <strong>Stimulus_2</strong>, etc., para cada estímulo. Cada coluna contém o nome configurado dentro do respetivo intervalo; fora dele fica vazia. Numa sobreposição, as colunas dos dois estímulos são preenchidas.</p>
             </section>
 
             <section class="guide-section" id="good-practices">
@@ -767,13 +947,14 @@ if page == "introduction":
             <h2>In this guide</h2>
             <a href="#getting-started">Getting Started</a>
             <a href="#preparing-videos">Preparing Your Videos</a>
-            <a href="#understanding-output">Understanding the Output Dataset</a>
+            <a href="#sampling">Sampling Modes</a>
+            <a href="#metadata">Experimental Metadata and Stimuli</a>
+            <a href="#landmarks">Facial Landmarks and Face Detection</a>
             <a href="#action-units">Action Units</a>
             <a href="#au-reference">AU Reference</a>
             <a href="#emotions">Emotions and Facial Metrics</a>
-            <a href="#landmarks">Facial Landmarks and Face Detection</a>
-            <a href="#sampling">Sampling Modes</a>
-            <a href="#metadata">Experimental Metadata and Stimuli</a>
+            <a href="#understanding-output">Understanding the Output Dataset</a>
+            <a href="#interpretation"><span class="guide-nav-warning" aria-hidden="true">&#9888;</span>Interpreting the Data</a>
             <a href="#good-practices">Good Practices and Limitations</a>
         </nav>
         <div class="guide-content">
@@ -801,20 +982,32 @@ if page == "introduction":
                 </ul>
             </section>
 
-            <section class="guide-section" id="understanding-output">
-                <h2>Understanding the Output Dataset</h2>
-                <p>The Parquet file contains Py-Feat predictions and identifiers added by this interface.</p>
+            <section class="guide-section" id="sampling">
+                <h2>Sampling Modes</h2>
                 <ul>
-                    <li><strong>subject_id:</strong> participant identifier assigned during upload.</li>
-                    <li><strong>input_file:</strong> source video name.</li>
-                    <li><strong>frame:</strong> frame number in the original video.</li>
-                    <li><strong>time_sec:</strong> approximate frame time in seconds in Every frame mode.</li>
-                    <li><strong>approx_time:</strong> readable time representation, such as 00:12.</li>
-                    <li><strong>second, time_start_sec, and time_end_sec:</strong> time interval created when data are aggregated by second.</li>
-                    <li><strong>stimulus:</strong> experimental marker assigned to rows inside the defined windows.</li>
-                    <li><strong>Action Units, emotions, landmarks, and other metrics:</strong> facial predictions produced by the Py-Feat model.</li>
+                    <li><strong>Every frame:</strong> preserves the highest temporal resolution and is useful for fast phenomena, but creates larger datasets and takes longer.</li>
+                    <li><strong>1 FPS - representative frame:</strong> selects approximately one frame per second. It is faster and more compact, but may miss brief movements.</li>
+                    <li><strong>Custom sampling:</strong> sets a target frequency in frames per second. The actual frequency is approximate and depends on the video's frame rate.</li>
                 </ul>
-                <div class="guide-note"><p>Always check the column names before analysis.</p></div>
+                <div class="guide-note"><p>Choose the mode based on the time scale of your hypothesis. If a relevant expression is brief, a higher custom frequency may preserve it.</p></div>
+            </section>
+
+            <section class="guide-section" id="metadata">
+                <h2>Experimental Metadata and Stimuli</h2>
+                <p>Enable stimulus markers when you want to relate facial detections to specific moments in the experimental protocol.</p>
+                <ol>
+                    <li>Indicate how many stimuli are in the session.</li>
+                    <li>Define the name of each stimulus.</li>
+                    <li>Enter the start and end seconds relative to the beginning of the video.</li>
+                    <li>Check that the intervals match the protocol; overlaps are preserved in separate columns.</li>
+                </ol>
+                <p>The dataset includes one column, <strong>Stimulus_1</strong>, <strong>Stimulus_2</strong>, etc., for each stimulus. Each column contains its configured name inside that interval and is blank outside it. When intervals overlap, both stimulus columns are populated.</p>
+            </section>
+
+            <section class="guide-section" id="landmarks">
+                <h2>Facial Landmarks and Face Detection</h2>
+                <p><strong>Facial landmarks</strong> are reference points placed at specific facial locations, such as the eyebrows, eyes, nose, mouth, and facial outline. They describe facial geometry and movement over time.</p>
+                <p><strong>Face detection</strong> locates the face in the image and may provide a bounding box, or <strong>face box</strong>. Landmarks and face boxes help verify whether the face was detected correctly and support the study of facial movement.</p>
             </section>
 
             <section class="guide-section" id="action-units">
@@ -845,32 +1038,87 @@ if page == "introduction":
                 <p>Probabilities or values should be treated as indicators for analysis, not as direct measurements of a person's internal emotional state. Interpretation should consider context, individual variability, and the experimental design.</p>
             </section>
 
-            <section class="guide-section" id="landmarks">
-                <h2>Facial Landmarks and Face Detection</h2>
-                <p><strong>Facial landmarks</strong> are reference points placed at specific facial locations, such as the eyebrows, eyes, nose, mouth, and facial outline. They describe facial geometry and movement over time.</p>
-                <p><strong>Face detection</strong> locates the face in the image and may provide a bounding box, or <strong>face box</strong>. Landmarks and face boxes help verify whether the face was detected correctly and support the study of facial movement.</p>
-            </section>
-
-            <section class="guide-section" id="sampling">
-                <h2>Sampling Modes</h2>
+            <section class="guide-section" id="understanding-output">
+                <h2>Understanding the Output Dataset</h2>
+                <p>The Parquet file contains Py-Feat predictions and identifiers added by this interface.</p>
                 <ul>
-                    <li><strong>Every frame:</strong> preserves the highest temporal resolution and is useful for fast phenomena, but creates larger datasets and takes longer.</li>
-                    <li><strong>1 FPS - representative frame:</strong> selects approximately one frame per second. It is faster and more compact, but may miss brief movements.</li>
-                    <li><strong>Custom sampling:</strong> sets a target frequency in frames per second. The actual frequency is approximate and depends on the video's frame rate.</li>
+                    <li><strong>subject_id:</strong> participant identifier assigned during upload.</li>
+                    <li><strong>input_file:</strong> source video name.</li>
+                    <li><strong>frame:</strong> frame number in the original video.</li>
+                    <li><strong>time_sec:</strong> approximate frame time in seconds in Every frame mode.</li>
+                    <li><strong>approx_time:</strong> readable time representation, such as 00:12.</li>
+                    <li><strong>second, time_start_sec, and time_end_sec:</strong> time interval created when data are aggregated by second.</li>
+                    <li><strong>Stimulus_1, Stimulus_2, etc.:</strong> one column per stimulus; a row can be marked in multiple columns when intervals overlap.</li>
+                    <li><strong>Action Units, emotions, landmarks, and other metrics:</strong> facial predictions produced by the Py-Feat model.</li>
                 </ul>
-                <div class="guide-note"><p>Choose the mode based on the time scale of your hypothesis. If a relevant expression is brief, a higher custom frequency may preserve it.</p></div>
+                <div class="guide-note"><p>Always check the column names before analysis.</p></div>
             </section>
 
-            <section class="guide-section" id="metadata">
-                <h2>Experimental Metadata and Stimuli</h2>
-                <p>Enable stimulus markers when you want to relate facial detections to specific moments in the experimental protocol.</p>
-                <ol>
-                    <li>Indicate how many stimuli are in the session.</li>
-                    <li>Define the name of each stimulus.</li>
-                    <li>Enter the start and end seconds relative to the beginning of the video.</li>
-                    <li>Check that the intervals match the protocol and that there are no unintended overlaps.</li>
-                </ol>
-                <p>The <strong>stimulus</strong> column identifies the stimulus associated with each row. Rows outside the defined intervals remain unlabelled.</p>
+            <section class="guide-section" id="interpretation">
+                <h2>Interpreting the Data</h2>
+
+                <h3>1. Action Units (AUs): Separating Signal from Noise</h3>
+                <ul>
+                    <li><strong>Empirical thresholds:</strong> Treat AU readings below <strong>0.10–0.15</strong> as possible baseline noise. Calibrate this range against your detector, video quality, and participant baseline; do not apply it as a universal cutoff.</li>
+                    <li><strong>Anatomical co-occurrence:</strong> Look for anatomically plausible AU clusters. For example, AU6 with AU12 can support a smile interpretation. An isolated AU may reflect noise, a social gesture, or another movement.</li>
+                    <li><strong>Baseline deviation:</strong> Compare peaks with the same participant's resting, neutral face. A change from that baseline is often more informative than the raw value.</li>
+                    <li><strong>Temporal persistence:</strong> Filter isolated, single-frame spikes that may come from tracking artifacts. Look for movements lasting at least <strong>3–5 consecutive frames</strong> (roughly <strong>100–200 ms</strong>, depending on frame rate and sampling).</li>
+                </ul>
+
+                <h3>2. Emotion Probabilities: Value vs. Misinterpretation</h3>
+                <ul>
+                    <li><strong>Flat distributions:</strong> If several emotion scores fall between <strong>0.20 and 0.30</strong>, treat the result as ambiguous rather than assigning a clear emotion. A single dominant score, such as <strong>above 0.70</strong>, is a stronger model signal, not proof of a person's psychological state.</li>
+                    <li><strong>Relative change:</strong> Focus on changes across conditions, such as a rise from <strong>0.05 to 0.45</strong>, rather than treating an absolute probability as a definitive measurement.</li>
+                    <li><strong>Contextual synchrony:</strong> Align emotion scores with the exact stimulus timestamp. Compare changes before, during, and after the stimulus.</li>
+                </ul>
+
+                <h3>3. Advanced Tracking and Geometric Metrics (Critical Sanity Checks)</h3>
+                <ul>
+                    <li><strong>Face detection confidence (<code>Face_Score</code>):</strong> Flag or exclude data points below <strong>0.90–0.95</strong> for closer review. Choose a cutoff that fits your data and analysis goals.</li>
+                    <li><strong>Head pose (<code>Pitch</code>, <code>Roll</code>, <code>Yaw</code>):</strong> Treat rotations above roughly <strong>15–20 degrees</strong> as a reason to inspect the frame. Larger rotations can distort visible facial geometry and affect AU estimates.</li>
+                    <li><strong>Landmark jitter and variance:</strong> Look for sudden, implausible jumps in landmark coordinates. These often indicate tracking failure, not a micro-expression.</li>
+                    <li><strong>Discontinuities and NaNs:</strong> Identify frames where the face is occluded or missing. Preserve these gaps as missing data; do not interpolate across them without a justified method.</li>
+                </ul>
+
+                <h3>Summary Checklist for Data Cleaning</h3>
+                <div class="guide-table-wrap">
+                    <table class="guide-table">
+                        <thead>
+                            <tr>
+                                <th>Data Point</th>
+                                <th>Discard as Noise if...</th>
+                                <th>Keep as Valuable Signal if...</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><strong>AU Values</strong></td>
+                                <td>Readings stay below approximately <strong>0.10–0.15</strong>, appear as isolated spikes, or lack a plausible AU cluster.</td>
+                                <td>Values rise above the participant's neutral baseline, form a plausible cluster, and persist across consecutive frames.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Emotion Values</strong></td>
+                                <td>Scores are spread across several categories around <strong>0.20–0.30</strong>, with no clear dominant category.</td>
+                                <td>One category becomes strongly dominant, or its score changes meaningfully across the stimulus context. Treat it as a model estimate, not a psychological fact.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Face_Score</strong></td>
+                                <td>Confidence falls below your chosen review threshold, typically <strong>0.90–0.95</strong>.</td>
+                                <td>Confidence meets your threshold and the face is visibly tracked well.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Head Pose Angles</strong></td>
+                                <td><code>Pitch</code>, <code>Roll</code>, or <code>Yaw</code> exceed roughly <strong>15–20 degrees</strong>, or change abruptly.</td>
+                                <td>Pose remains stable enough for reliable facial visibility and comparison.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Landmark Coordinates</strong></td>
+                                <td>Coordinates jump unnaturally, become discontinuous, or are missing during occlusion.</td>
+                                <td>Coordinates move smoothly and consistently with visible facial motion.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
             </section>
 
             <section class="guide-section" id="good-practices">
@@ -968,6 +1216,67 @@ def calculate_skip_frames(video_fps, target_fps):
     return max(1, int(round(float(video_fps) / float(target_fps))))
 
 
+def estimate_processing_seconds(sampled_rows, sampling_mode, runtime_history):
+    mode_history = runtime_history.get(sampling_mode)
+    if mode_history and mode_history["rows"] > 0:
+        seconds_per_row = mode_history["seconds"] / mode_history["rows"]
+        return float(sampled_rows) * seconds_per_row
+
+    measured_rows = sum(history["rows"] for history in runtime_history.values() if history["rows"] > 0)
+    measured_seconds = sum(history["seconds"] for history in runtime_history.values() if history["rows"] > 0)
+    if measured_rows > 0:
+        return float(sampled_rows) * measured_seconds / measured_rows
+
+    return float(sampled_rows) * BASELINE_SECONDS_PER_FRAME
+
+
+def has_runtime_measurements(runtime_history):
+    return any(history["rows"] > 0 for history in runtime_history.values())
+
+
+def iter_with_progress(iterable, on_progress):
+    total = len(iterable)
+    for batch_number, item in enumerate(iterable, start=1):
+        yield item
+        on_progress(batch_number, total)
+
+
+def report_video_progress(
+    batch_number,
+    total_batches,
+    *,
+    progress_bar,
+    completed_rows,
+    expected_rows,
+    total_rows,
+    video_started_at,
+    current,
+    total,
+    name,
+):
+    inference_progress = batch_number / total_batches if total_batches else 0.0
+    video_progress = min(inference_progress * 0.95, 0.95)
+    work_done = completed_rows + expected_rows * video_progress
+    overall_progress = min(work_done / max(total_rows, 1), 0.999)
+    rows_observed = expected_rows * inference_progress
+    elapsed = time.perf_counter() - video_started_at
+    remaining_rows = max(total_rows - work_done, 0)
+    remaining_seconds = elapsed * remaining_rows / rows_observed if rows_observed else 0
+    remaining_total = max(0, int(round(remaining_seconds)))
+    progress_bar.progress(
+        overall_progress,
+        text=t(
+            "processing_video_progress",
+            current=current,
+            total=total,
+            name=name,
+            percent=video_progress * 100,
+            minutes=remaining_total // 60,
+            seconds=remaining_total % 60,
+        ),
+    )
+
+
 def aggregate_by_second(df, fps):
     """Aggregate a per-frame dataframe into one row per second, using the mean of all frames in each second."""
     if df is None or df.empty or "frame" not in df.columns:
@@ -1026,16 +1335,15 @@ def apply_stimulus_metadata(df, stimuli):
     else:
         row_times = pd.Series(float("nan"), index=df.index)
 
-    labels = pd.Series("", index=df.index, dtype="object")
-    for stimulus in stimuli:
+    for index, stimulus in enumerate(stimuli, start=1):
         start = float(stimulus["inicio"])
         end = float(stimulus["fim"])
         if end < start:
             start, end = end, start
         matches = row_times.ge(start) & row_times.lt(end)
+        labels = pd.Series("", index=df.index, dtype="object")
         labels.loc[matches] = stimulus["nome"]
-
-    df["stimulus"] = labels
+        df[f"Stimulus_{index}"] = labels
     return df
 
 
@@ -1043,6 +1351,196 @@ def dataframe_to_parquet_bytes(df):
     buffer = BytesIO()
     df.to_parquet(buffer, engine="pyarrow", compression="snappy", index=False)
     return buffer.getvalue()
+
+
+def visualization_time(df):
+    for column in ("time_sec", "time_start_sec", "frame"):
+        if column in df.columns:
+            return pd.to_numeric(df[column], errors="coerce"), column
+    return pd.Series(range(len(df)), index=df.index, dtype="float64"), "sample"
+
+
+def visualization_columns(df, category):
+    if category == "Action Units":
+        return sorted(
+            (column for column in df.columns if re.fullmatch(r"AU\d+", str(column))),
+            key=lambda column: int(re.search(r"\d+", str(column)).group()),
+        )
+    if category == "Emotions":
+        preferred = ["neutral", "happiness", "sadness", "anger", "fear", "disgust", "surprise"]
+    else:
+        preferred = ["Pitch", "Roll", "Yaw"]
+    return [column for column in preferred if column in df.columns]
+
+
+def style_visualization(fig, height=340):
+    fig.update_layout(
+        template="plotly_dark",
+        paper_bgcolor="#202c33",
+        plot_bgcolor="#202c33",
+        font_color="#edf3f1",
+        height=height,
+        margin={"l": 20, "r": 20, "t": 42, "b": 20},
+        legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "x": 0},
+    )
+    fig.update_xaxes(gridcolor="#394951", zerolinecolor="#536b73")
+    fig.update_yaxes(gridcolor="#394951", zerolinecolor="#536b73")
+    return fig
+
+
+def add_stimulus_spans(fig, stimuli):
+    for stimulus in stimuli:
+        start = float(stimulus["inicio"])
+        end = float(stimulus["fim"])
+        if end < start:
+            start, end = end, start
+        fig.add_vrect(
+            x0=start,
+            x1=end,
+            fillcolor="#f09a52",
+            opacity=0.12,
+            line_width=0,
+            annotation_text=stimulus["nome"],
+            annotation_position="top left",
+        )
+    return fig
+
+
+def compare_stimulus_windows(results, metric):
+    records = []
+    for result in results.values():
+        df = result["dataframe"]
+        if metric not in df.columns:
+            continue
+        times, _ = visualization_time(df)
+        values = pd.to_numeric(df[metric], errors="coerce")
+        for stimulus in result.get("stimuli", []):
+            start = float(stimulus["inicio"])
+            end = float(stimulus["fim"])
+            if end < start:
+                start, end = end, start
+            before = values.loc[times.ge(start - 5) & times.lt(start)].mean()
+            during = values.loc[times.ge(start) & times.lt(end)].mean()
+            if pd.isna(before) or pd.isna(during):
+                continue
+            case = f"{result['subject_id']} · {df['input_file'].iloc[0]} · {stimulus['nome']}"
+            for period, value in (("Before", before), ("During", during)):
+                records.append({
+                    "case": case,
+                    "subject": result["subject_id"],
+                    "stimulus": stimulus["nome"],
+                    "period": period,
+                    "value": value,
+                })
+    return pd.DataFrame.from_records(records)
+
+
+def event_aligned_signals(results, metric, stimulus_name, padding=5.0):
+    records = []
+    for result in results.values():
+        df = result["dataframe"]
+        if metric not in df.columns or df.empty:
+            continue
+        stimulus = next(
+            (item for item in result.get("stimuli", []) if item["nome"] == stimulus_name),
+            None,
+        )
+        if stimulus is None:
+            continue
+
+        start = float(stimulus["inicio"])
+        end = float(stimulus["fim"])
+        if end < start:
+            start, end = end, start
+        times, time_column = visualization_time(df)
+        values = pd.to_numeric(df[metric], errors="coerce")
+        window = times.ge(start - padding) & times.le(end + padding)
+        case = f"{result['subject_id']} · {df['input_file'].iloc[0]}"
+        for relative_time, value in zip(times.loc[window] - start, values.loc[window]):
+            if pd.isna(relative_time) or pd.isna(value):
+                continue
+            records.append({
+                "relative_time": float(relative_time),
+                "value": float(value),
+                "recording": case,
+                "time_column": time_column,
+                "stimulus_duration": end - start,
+            })
+    return pd.DataFrame.from_records(records)
+
+
+def pearson_correlation(left_values, right_values):
+    if len(left_values) < 4:
+        return None
+    left_mean = sum(left_values) / len(left_values)
+    right_mean = sum(right_values) / len(right_values)
+    left_centered = [value - left_mean for value in left_values]
+    right_centered = [value - right_mean for value in right_values]
+    left_sum = sum(value * value for value in left_centered)
+    right_sum = sum(value * value for value in right_centered)
+    if left_sum == 0 or right_sum == 0:
+        return None
+    covariance = sum(
+        left_value * right_value
+        for left_value, right_value in zip(left_centered, right_centered)
+    )
+    return covariance / math.sqrt(left_sum * right_sum)
+
+
+def stimulus_similarity_matrix(results, metric, stimulus_name, phase_bins=20):
+    recording_series = {}
+    for result in results.values():
+        df = result["dataframe"]
+        if metric not in df.columns or df.empty:
+            continue
+        stimulus = next(
+            (item for item in result.get("stimuli", []) if item["nome"] == stimulus_name),
+            None,
+        )
+        if stimulus is None:
+            continue
+
+        start = float(stimulus["inicio"])
+        end = float(stimulus["fim"])
+        if end < start:
+            start, end = end, start
+        if end <= start:
+            continue
+        times, _ = visualization_time(df)
+        values = pd.to_numeric(df[metric], errors="coerce")
+        within_window = times.ge(start) & times.lt(end) & values.notna()
+        phase_data = pd.DataFrame({
+            "phase": (times.loc[within_window] - start) / (end - start),
+            "value": values.loc[within_window],
+        })
+        if phase_data.empty:
+            continue
+        phase_data["phase_bin"] = (phase_data["phase"] * phase_bins).astype(int).clip(0, phase_bins - 1)
+        binned = phase_data.groupby("phase_bin")["value"].mean().to_dict()
+        if len(binned) < 4:
+            continue
+        case = f"{result['subject_id']} · {df['input_file'].iloc[0]}"
+        recording_series[case] = binned
+
+    labels = list(recording_series)
+    correlations = []
+    shared_bin_counts = []
+    for row_label in labels:
+        correlation_row = []
+        count_row = []
+        for column_label in labels:
+            common_bins = sorted(set(recording_series[row_label]) & set(recording_series[column_label]))
+            left_values = [recording_series[row_label][phase] for phase in common_bins]
+            right_values = [recording_series[column_label][phase] for phase in common_bins]
+            correlation_row.append(pearson_correlation(left_values, right_values))
+            count_row.append(len(common_bins))
+        correlations.append(correlation_row)
+        shared_bin_counts.append(count_row)
+
+    return (
+        pd.DataFrame(correlations, index=labels, columns=labels, dtype="float64"),
+        pd.DataFrame(shared_bin_counts, index=labels, columns=labels, dtype="int64"),
+    )
 
 
 st.title(t("title"))
@@ -1055,6 +1553,7 @@ uploaded_files = st.file_uploader(t("upload_help"), type=['mp4', 'avi', 'mov'],
 video_subjects = {}
 total_frames_to_process = 0
 videos_info = {}
+runtime_history = st.session_state.setdefault("processing_runtime_history", {})
 
 if uploaded_files:
     st.markdown(t("subject_mapping"))
@@ -1071,16 +1570,51 @@ if uploaded_files:
 
 #Barra lateral para parâmetros tecnicos e tempo de espera
 with st.sidebar:
-    if st.button("⌂", help=t("home"), key="home_button", use_container_width=True):
-        st.session_state["app_page"] = "introduction"
-        st.rerun()
-
     st.header(t("controls"))
     
     sampling_rate = st.selectbox(
         t("sampling_label"),
         options=list(sampling_labels),
         index=1,
+        key="sampling_selection",
+        accept_new_options=False,
+    )
+    st.html(
+        """
+        <script>
+        (() => {
+            const lockSamplingInput = () => {
+                const expandButton = document.querySelector('button[data-testid="stExpandSidebarButton"]');
+                if (expandButton) expandButton.setAttribute("aria-label", "Open Extraction Controls");
+                const input = document.querySelector(
+                    '.st-key-sampling_selection [data-testid="stSelectbox"] input'
+                );
+                if (!input || input.dataset.noTextEntry === "true") return;
+                input.readOnly = true;
+                input.setAttribute("inputmode", "none");
+                input.dataset.noTextEntry = "true";
+                input.addEventListener("keydown", (event) => {
+                    if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
+                        event.preventDefault();
+                        event.stopImmediatePropagation();
+                    }
+                }, true);
+                input.addEventListener("beforeinput", (event) => {
+                    event.preventDefault();
+                    event.stopImmediatePropagation();
+                }, true);
+            };
+            lockSamplingInput();
+            if (window.samplingDropdownObserver) window.samplingDropdownObserver.disconnect();
+            window.samplingDropdownObserver = new MutationObserver(lockSamplingInput);
+            window.samplingDropdownObserver.observe(document.body, {
+                childList: true,
+                subtree: true,
+            });
+        })();
+        </script>
+        """,
+        unsafe_allow_javascript=True,
     )
     sampling_mode = sampling_labels[sampling_rate]
     custom_sampling_fps = 1.0
@@ -1122,16 +1656,22 @@ with st.sidebar:
 
             videos_info[file_name]["skip_frames"] = skip
             videos_info[file_name]["sampling_mode"] = sampling_mode
+            videos_info[file_name]["effective_rows"] = effective_rows
             frames_to_analyze += effective_rows
             output_rows += effective_rows
 
-        tempo_estimado_segundos = frames_to_analyze * 0.8
-        minutos = int(tempo_estimado_segundos // 60)
-        segundos = int(tempo_estimado_segundos % 60)
-
         st.metric(label=t("frames_analyzed"), value=f"{frames_to_analyze}")
         st.metric(label=t("output_rows"), value=f"{output_rows}")
-        st.caption(t("estimated_time", minutes=minutos, seconds=segundos))
+        estimated_seconds = estimate_processing_seconds(frames_to_analyze, sampling_mode, runtime_history)
+        rounded_seconds = max(0, int(round(estimated_seconds)))
+        minutes = rounded_seconds // 60
+        seconds = rounded_seconds % 60
+        st.metric(
+            label=t("estimated_time"),
+            value=f"{minutes}m {seconds}s",
+        )
+        if not has_runtime_measurements(runtime_history):
+            st.caption(t("estimated_time_disclaimer"))
     else:
         st.info(t("upload_for_estimate"))
 
@@ -1168,6 +1708,8 @@ if add_metadata:
             "fim": t_end,
         })
 
+st.session_state["stimuli_timestamps"] = estimulos_timestamps
+stimuli_for_processing = st.session_state.get("stimuli_timestamps", [])
 st.markdown("---")
 
 #Py-FEAT
@@ -1192,14 +1734,28 @@ if st.button(t("start_extraction"), type="primary"):
         # barra de loading
         progress_bar = st.progress(0, text=t("preparing"))
         total_files = len(uploaded_files)
+        completed_rows = 0
         
         for idx, file in enumerate(uploaded_files):
             subject_id = video_subjects[file.name]
             skip_frames = videos_info[file.name]["skip_frames"]
             sampling_mode = videos_info[file.name].get("sampling_mode", sampling_mode)
+            expected_rows = videos_info[file.name]["effective_rows"]
 
             progress_text = t("processing_video", current=idx + 1, total=total_files, name=file.name, subject=subject_id)
             progress_bar.progress(idx / total_files, text=progress_text)
+            video_started_at = time.perf_counter()
+            progress_callback = partial(
+                report_video_progress,
+                progress_bar=progress_bar,
+                completed_rows=completed_rows,
+                expected_rows=expected_rows,
+                total_rows=frames_to_analyze,
+                video_started_at=video_started_at,
+                current=idx + 1,
+                total=total_files,
+                name=file.name,
+            )
 
             with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as temp_video:
                 file.seek(0)
@@ -1208,17 +1764,23 @@ if st.button(t("start_extraction"), type="primary"):
 
             try:
                 with st.spinner(t("extracting")):
-                    with torch.no_grad():
-                        video_prediction = detector.detect_video(
-                            temp_video_path,
-                            skip_frames=skip_frames,
-                            batch_size=4,
-                        )
+                    with DETECT_VIDEO_PROGRESS_LOCK:
+                        original_tqdm = feat_detector.tqdm
+                        feat_detector.tqdm = lambda iterable: iter_with_progress(iterable, progress_callback)
+                        try:
+                            with torch.no_grad():
+                                video_prediction = detector.detect_video(
+                                    temp_video_path,
+                                    skip_frames=skip_frames,
+                                    batch_size=4,
+                                )
+                        finally:
+                            feat_detector.tqdm = original_tqdm
                     df_raw = video_prediction.to_pandas() if hasattr(video_prediction, 'to_pandas') else video_prediction
 
                     output_df = prepare_frame_dataframe(df_raw, videos_info[file.name]["fps"], sampling_mode)
-                    if add_metadata:
-                        output_df = apply_stimulus_metadata(output_df, estimulos_timestamps)
+                    if stimuli_for_processing:
+                        output_df = apply_stimulus_metadata(output_df, stimuli_for_processing)
                     output_df["subject_id"] = subject_id
                     output_df["input_file"] = file.name
 
@@ -1228,7 +1790,26 @@ if st.button(t("start_extraction"), type="primary"):
                         "dataframe": output_df,
                         "parquet_bytes": parquet_bytes,
                         "file_name": f"{subject_id}_{os.path.splitext(file.name)[0]}_pyfeat.parquet",
+                        "expected_rows": expected_rows,
+                        "stimuli": [dict(stimulus) for stimulus in stimuli_for_processing],
                     }
+                    elapsed_seconds = time.perf_counter() - video_started_at
+                    mode_history = runtime_history.setdefault(sampling_mode, {"rows": 0, "seconds": 0.0})
+                    mode_history["rows"] += expected_rows
+                    mode_history["seconds"] += elapsed_seconds
+                    completed_rows += expected_rows
+                    progress_bar.progress(
+                        min(completed_rows / max(frames_to_analyze, 1), 1.0),
+                        text=t(
+                            "processing_video_progress",
+                            current=idx + 1,
+                            total=total_files,
+                            name=file.name,
+                            percent=100,
+                            minutes=0,
+                            seconds=0,
+                        ),
+                    )
 
             finally:
                 if os.path.exists(temp_video_path):
@@ -1236,12 +1817,173 @@ if st.button(t("start_extraction"), type="primary"):
         
         # FIMMMMM da barra 
         progress_bar.progress(1.0, text=t("finished"))
-        st.info(t("finished"))
+        st.rerun()
 
 for result in processed_results.values():
-    st.success(t("completed_file", name=result["dataframe"]["input_file"].iloc[0]))
-    st.write(t("preview", rows=result["dataframe"].shape[0], mode=sampling_display))
-    st.dataframe(result["dataframe"].head(50), use_container_width=True)
+    result_df = result["dataframe"]
+    result_input = result_df["input_file"].iloc[0] if not result_df.empty else result["file_name"]
+    result_key = result["file_name"]
+    expected_rows = result.get("expected_rows", len(result_df))
+    stimuli = result.get("stimuli", [])
+    time_values, time_column = visualization_time(result_df)
+    time_label = "Time (seconds)" if time_column in {"time_sec", "time_start_sec"} else "Frame"
+
+    st.success(t("completed_file", name=result_input))
+    st.write(t("preview", rows=result_df.shape[0], mode=sampling_display))
+
+    with st.expander(t("visualizations"), expanded=False):
+        quality_tab, signals_tab, heatmap_tab = st.tabs([
+            t("quality_tab"),
+            t("signals_tab"),
+            t("heatmap_tab"),
+        ])
+
+        with quality_tab:
+            face_scores = (
+                pd.to_numeric(result_df["FaceScore"], errors="coerce")
+                if "FaceScore" in result_df.columns
+                else None
+            )
+            threshold = st.slider(
+                t("confidence_threshold"),
+                min_value=0.0,
+                max_value=1.0,
+                value=0.9,
+                step=0.05,
+                key=f"confidence_threshold_{result_key}",
+            )
+            detected_frames = result_df["frame"].nunique() if "frame" in result_df.columns else len(result_df)
+            frame_coverage = min(detected_frames / expected_rows, 1.0) if expected_rows else 0.0
+            quality_columns = st.columns(4)
+            quality_columns[0].metric(t("output_rows_metric"), f"{len(result_df):,}")
+            quality_columns[1].metric(
+                t("frames_with_detections"),
+                f"{detected_frames:,} / {expected_rows:,}",
+                delta=f"{frame_coverage:.0%}",
+            )
+            quality_columns[2].metric(
+                t("median_face_score"),
+                f"{face_scores.median():.3f}" if face_scores is not None and face_scores.notna().any() else "N/A",
+            )
+            flagged_scores = int(face_scores.lt(threshold).sum()) if face_scores is not None else 0
+            quality_columns[3].metric(
+                t("flagged_face_scores"),
+                f"{flagged_scores:,}" if face_scores is not None else "N/A",
+            )
+            st.caption(t("quality_threshold_note"))
+
+            if face_scores is None:
+                st.info(t("no_face_score"))
+            else:
+                confidence_data = pd.DataFrame({"time": time_values, "FaceScore": face_scores}).dropna()
+                if len(confidence_data) > 3000:
+                    confidence_data = confidence_data.iloc[::math.ceil(len(confidence_data) / 3000)]
+                confidence_fig = px.scatter(
+                    confidence_data,
+                    x="time",
+                    y="FaceScore",
+                    title="Face detection confidence over time",
+                    labels={"time": time_label},
+                    hover_data={"FaceScore": ":.3f"},
+                )
+                confidence_fig.add_hline(
+                    y=threshold,
+                    line_dash="dash",
+                    line_color="#ef5350",
+                    annotation_text=f"Review threshold: {threshold:.2f}",
+                )
+                style_visualization(confidence_fig)
+                st.plotly_chart(
+                    confidence_fig,
+                    width="stretch",
+                    key=f"confidence_chart_{result_key}",
+                )
+
+        with signals_tab:
+            signal_categories = [
+                (t("au_group"), "Action Units"),
+                (t("emotion_group"), "Emotions"),
+                (t("pose_group"), "Head pose"),
+            ]
+            available_categories = [
+                (label, category)
+                for label, category in signal_categories
+                if visualization_columns(result_df, category)
+            ]
+            if not available_categories:
+                st.info(t("no_face_score"))
+            else:
+                selected_label = st.radio(
+                    t("signal_category"),
+                    options=[label for label, _ in available_categories],
+                    horizontal=True,
+                    key=f"signal_category_{result_key}",
+                )
+                category = dict(available_categories)[selected_label]
+                signal_columns = visualization_columns(result_df, category)
+                default_signals = signal_columns[:2] if category == "Action Units" else signal_columns[:1]
+                selected_signals = st.multiselect(
+                    t("select_signals"),
+                    options=signal_columns,
+                    default=default_signals,
+                    key=f"signal_columns_{result_key}",
+                )
+                if selected_signals:
+                    signal_data = result_df[selected_signals].apply(pd.to_numeric, errors="coerce").copy()
+                    signal_data["time"] = time_values.to_numpy()
+                    signal_data = signal_data.dropna(subset=["time"])
+                    if len(signal_data) > 5000:
+                        signal_data = signal_data.iloc[::math.ceil(len(signal_data) / 5000)]
+                    signal_fig = px.line(
+                        signal_data,
+                        x="time",
+                        y=selected_signals,
+                        title="Selected model outputs over time",
+                        labels={"time": time_label, "value": "Model output"},
+                    )
+                    add_stimulus_spans(signal_fig, stimuli)
+                    style_visualization(signal_fig, height=390)
+                    st.plotly_chart(
+                        signal_fig,
+                        width="stretch",
+                        key=f"signals_chart_{result_key}",
+                    )
+
+        with heatmap_tab:
+            au_columns = visualization_columns(result_df, "Action Units")
+            if not au_columns:
+                st.info(t("no_face_score"))
+            else:
+                heatmap_data = result_df[au_columns].apply(pd.to_numeric, errors="coerce")
+                heatmap_times = time_values
+                if len(heatmap_data) > 1500:
+                    step = math.ceil(len(heatmap_data) / 1500)
+                    heatmap_data = heatmap_data.iloc[::step]
+                    heatmap_times = heatmap_times.iloc[::step]
+                heatmap_fig = go.Figure(
+                    data=go.Heatmap(
+                        z=heatmap_data.to_numpy(dtype=float).T,
+                        x=heatmap_times,
+                        y=au_columns,
+                        colorscale="Viridis",
+                        colorbar={"title": "AU"},
+                        hovertemplate="%{y}<br>Time: %{x:.2f}<br>Value: %{z:.3f}<extra></extra>",
+                    )
+                )
+                add_stimulus_spans(heatmap_fig, stimuli)
+                heatmap_fig.update_layout(
+                    title="Action Unit activity across time",
+                    xaxis_title=time_label,
+                    yaxis_title="Action Unit",
+                )
+                style_visualization(heatmap_fig, height=470)
+                st.plotly_chart(
+                    heatmap_fig,
+                    width="stretch",
+                    key=f"au_heatmap_{result_key}",
+                )
+
+    st.dataframe(result_df.head(50), use_container_width=True)
     st.download_button(
         label=t("download"),
         data=result["parquet_bytes"],
@@ -1249,3 +1991,223 @@ for result in processed_results.values():
         mime="application/vnd.apache.parquet",
         key=f"download_{result['file_name']}",
     )
+
+results_with_stimuli = {
+    file_name: result
+    for file_name, result in processed_results.items()
+    if result.get("stimuli")
+}
+if results_with_stimuli:
+    with st.expander(t("stimulus_comparison"), expanded=False):
+        available_columns = set.union(*(
+            set(result["dataframe"].columns)
+            for result in results_with_stimuli.values()
+        ))
+        available_columns = list(available_columns)
+        signal_categories = [
+            (t("au_group"), "Action Units"),
+            (t("emotion_group"), "Emotions"),
+            (t("pose_group"), "Head pose"),
+        ]
+        category_options = [
+            (label, category)
+            for label, category in signal_categories
+            if set(visualization_columns(pd.DataFrame(columns=available_columns), category))
+        ]
+        if category_options:
+            selected_category_label = st.radio(
+                t("signal_category"),
+                options=[label for label, _ in category_options],
+                horizontal=True,
+                key="stimulus_comparison_category",
+            )
+            selected_category = dict(category_options)[selected_category_label]
+            common_metric_columns = visualization_columns(
+                pd.DataFrame(columns=available_columns), selected_category
+            )
+            selected_metric = st.selectbox(
+                t("stimulus_metric"),
+                options=common_metric_columns,
+                key="stimulus_comparison_metric",
+                accept_new_options=False,
+            )
+            comparison_data = compare_stimulus_windows(results_with_stimuli, selected_metric)
+            if comparison_data.empty:
+                st.info(t("no_stimulus_comparison"))
+            else:
+                comparison_fig = px.line(
+                    comparison_data,
+                    x="period",
+                    y="value",
+                    color="stimulus",
+                    line_group="case",
+                    markers=True,
+                    hover_data=["subject", "case"],
+                    category_orders={"period": ["Before", "During"]},
+                    title=f"{selected_metric}: before vs during stimulus",
+                    labels={"value": selected_metric, "period": "Period", "stimulus": "Stimulus"},
+                )
+                comparison_fig.update_xaxes(categoryorder="array", categoryarray=["Before", "During"])
+                style_visualization(comparison_fig)
+                st.plotly_chart(
+                    comparison_fig,
+                    width="stretch",
+                    key="stimulus_comparison_chart",
+                )
+                st.caption(t("stimulus_comparison_note"))
+        else:
+            st.info(t("no_stimulus_comparison"))
+
+    with st.expander(t("advanced_stimulus_analysis"), expanded=False):
+        event_tab, similarity_tab = st.tabs([
+            t("event_aligned_tab"),
+            t("similarity_tab"),
+        ])
+        all_result_columns = list(set.union(*(
+            set(result["dataframe"].columns)
+            for result in results_with_stimuli.values()
+        )))
+        result_schema = pd.DataFrame(columns=all_result_columns)
+        available_categories = [
+            (label, category)
+            for label, category in [
+                (t("au_group"), "Action Units"),
+                (t("emotion_group"), "Emotions"),
+                (t("pose_group"), "Head pose"),
+            ]
+            if visualization_columns(result_schema, category)
+        ]
+        stimulus_names = sorted({
+            stimulus["nome"]
+            for result in results_with_stimuli.values()
+            for stimulus in result.get("stimuli", [])
+        })
+
+        if available_categories and stimulus_names:
+            with event_tab:
+                event_category_label = st.radio(
+                    t("signal_category"),
+                    options=[label for label, _ in available_categories],
+                    horizontal=True,
+                    key="event_aligned_category",
+                )
+                event_category = dict(available_categories)[event_category_label]
+                event_metrics = visualization_columns(result_schema, event_category)
+                event_control_col, event_metric_col = st.columns(2)
+                with event_control_col:
+                    event_stimulus = st.selectbox(
+                        t("stimulus_selector"),
+                        options=stimulus_names,
+                        key="event_aligned_stimulus",
+                        accept_new_options=False,
+                    )
+                with event_metric_col:
+                    event_metric = st.selectbox(
+                        t("stimulus_metric"),
+                        options=event_metrics,
+                        key="event_aligned_metric",
+                        accept_new_options=False,
+                    )
+                event_data = event_aligned_signals(
+                    results_with_stimuli,
+                    event_metric,
+                    event_stimulus,
+                )
+                if event_data.empty:
+                    st.info(t("no_event_aligned_data"))
+                else:
+                    event_fig = px.line(
+                        event_data,
+                        x="relative_time",
+                        y="value",
+                        color="recording",
+                        line_group="recording",
+                        hover_data={"relative_time": ":.2f", "value": ":.3f"},
+                        title=f"{event_metric} around {event_stimulus}",
+                        labels={
+                            "relative_time": "Time from stimulus onset (seconds)",
+                            "value": event_metric,
+                            "recording": "Recording",
+                        },
+                    )
+                    duration = float(event_data["stimulus_duration"].median())
+                    event_fig.add_vrect(
+                        x0=0,
+                        x1=duration,
+                        fillcolor="#f09a52",
+                        opacity=0.12,
+                        line_width=0,
+                        annotation_text=event_stimulus,
+                        annotation_position="top left",
+                    )
+                    event_fig.add_vline(x=0, line_dash="dash", line_color="#f09a52")
+                    style_visualization(event_fig, height=410)
+                    st.plotly_chart(
+                        event_fig,
+                        width="stretch",
+                        key="event_aligned_chart",
+                    )
+                    st.caption(t("event_aligned_note"))
+
+            with similarity_tab:
+                similarity_category_label = st.radio(
+                    t("signal_category"),
+                    options=[label for label, _ in available_categories],
+                    horizontal=True,
+                    key="trajectory_similarity_category",
+                )
+                similarity_category = dict(available_categories)[similarity_category_label]
+                similarity_metrics = visualization_columns(result_schema, similarity_category)
+                similarity_control_col, similarity_metric_col = st.columns(2)
+                with similarity_control_col:
+                    similarity_stimulus = st.selectbox(
+                        t("stimulus_selector"),
+                        options=stimulus_names,
+                        key="trajectory_similarity_stimulus",
+                        accept_new_options=False,
+                    )
+                with similarity_metric_col:
+                    similarity_metric = st.selectbox(
+                        t("stimulus_metric"),
+                        options=similarity_metrics,
+                        key="trajectory_similarity_metric",
+                        accept_new_options=False,
+                    )
+                similarity_data, shared_bins = stimulus_similarity_matrix(
+                    results_with_stimuli,
+                    similarity_metric,
+                    similarity_stimulus,
+                )
+                if len(similarity_data) < 2:
+                    st.info(t("similarity_min_recordings"))
+                else:
+                    similarity_fig = go.Figure(
+                        data=go.Heatmap(
+                            z=similarity_data.to_numpy(),
+                            x=similarity_data.columns,
+                            y=similarity_data.index,
+                            customdata=shared_bins.to_numpy(),
+                            colorscale="RdBu",
+                            reversescale=True,
+                            zmin=-1,
+                            zmax=1,
+                            colorbar={"title": "Pearson r"},
+                            hovertemplate=(
+                                "Recording A: %{y}<br>Recording B: %{x}"
+                                "<br>Pearson r: %{z:.3f}<br>Shared phases: %{customdata}"
+                                "<extra></extra>"
+                            ),
+                        )
+                    )
+                    similarity_fig.update_layout(
+                        title=f"{similarity_metric} trajectory similarity during {similarity_stimulus}",
+                        xaxis_title="Recording",
+                        yaxis_title="Recording",
+                    )
+                    style_visualization(similarity_fig, height=500)
+                    st.plotly_chart(
+                        similarity_fig,
+                        width="stretch",
+                        key="trajectory_similarity_chart",
+                    )
+                    st.caption(t("similarity_note"))
