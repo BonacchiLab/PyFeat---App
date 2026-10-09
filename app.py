@@ -644,6 +644,7 @@ TRANSLATIONS = {
         "preview": "Pré-visualização dos dados finais ({rows} linhas) — {mode}:",
         "download": "Baixar Parquet",
         "visualizations": "Visualizações interativas",
+        "visualizations_after_processing": "Carregue um vídeo e selecione **Extrair dados** para gerar o output e as respetivas visualizações interativas.",
         "quality_tab": "Qualidade dos dados",
         "signals_tab": "Sinais ao longo do tempo",
         "heatmap_tab": "Heatmap de AUs",
@@ -731,6 +732,7 @@ TRANSLATIONS = {
         "preview": "Preview of final data ({rows} rows) — {mode}:",
         "download": "Download Parquet",
         "visualizations": "Interactive visualizations",
+        "visualizations_after_processing": "Upload a video and select **Extract data** to generate the output and its interactive visualizations.",
         "quality_tab": "Data quality",
         "signals_tab": "Signals over time",
         "heatmap_tab": "AU heatmap",
@@ -1715,6 +1717,8 @@ st.markdown("---")
 #Py-FEAT
 st.subheader(t("processing"))
 processed_results = st.session_state.setdefault("processed_results", {})
+if not processed_results:
+    st.info(t("visualizations_after_processing"))
 
 if st.button(t("start_extraction"), type="primary"):
     
@@ -1831,7 +1835,7 @@ for result in processed_results.values():
     st.success(t("completed_file", name=result_input))
     st.write(t("preview", rows=result_df.shape[0], mode=sampling_display))
 
-    with st.expander(t("visualizations"), expanded=False):
+    with st.expander(t("visualizations"), expanded=True):
         quality_tab, signals_tab, heatmap_tab = st.tabs([
             t("quality_tab"),
             t("signals_tab"),
@@ -1998,7 +2002,7 @@ results_with_stimuli = {
     if result.get("stimuli")
 }
 if results_with_stimuli:
-    with st.expander(t("stimulus_comparison"), expanded=False):
+    with st.expander(t("stimulus_comparison"), expanded=True):
         available_columns = set.union(*(
             set(result["dataframe"].columns)
             for result in results_with_stimuli.values()
@@ -2058,7 +2062,7 @@ if results_with_stimuli:
         else:
             st.info(t("no_stimulus_comparison"))
 
-    with st.expander(t("advanced_stimulus_analysis"), expanded=False):
+    with st.expander(t("advanced_stimulus_analysis"), expanded=True):
         event_tab, similarity_tab = st.tabs([
             t("event_aligned_tab"),
             t("similarity_tab"),
