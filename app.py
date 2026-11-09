@@ -19,7 +19,6 @@ import plotly.graph_objects as go
 DETECT_VIDEO_PROGRESS_LOCK = threading.Lock()
 BASELINE_SECONDS_PER_FRAME = 4.0
 
-#Design basico da pagina 
 st.set_page_config(page_title="FEDET powered by py-feat", layout="wide")
 st.markdown(
     """
@@ -644,6 +643,13 @@ TRANSLATIONS = {
         "preview": "Pré-visualização dos dados finais ({rows} linhas) — {mode}:",
         "download": "Baixar Parquet",
         "visualizations": "Visualizações interativas",
+        "chart_help_button": "Sobre este gráfico",
+        "chart_face_score_help": "Cada ponto é uma deteção num frame. O eixo horizontal mostra o tempo ou frame; o vertical mostra o FaceScore (0–1). A linha vermelha é o limite escolhido para revisão. Um score baixo pede inspeção da imagem, mas não diz se uma AU ou emoção está correta.",
+        "chart_signals_help": "O eixo horizontal é o tempo ou frame e o vertical é o valor produzido pelo modelo. Escolha AUs, emoções ou pose nos controlos. As faixas sombreadas marcam estímulos. Compare tendências, não escalas diferentes; estes valores são estimativas do modelo.",
+        "chart_heatmap_help": "Cada linha representa uma AU e cada coluna um frame amostrado. A cor mostra o valor estimado pelo modelo; células sem cor são dados em falta, não zeros. As faixas sombreadas assinalam estímulos para ajudar a localizar mudanças no tempo.",
+        "chart_before_during_help": "Cada par de pontos é uma gravação: a média nos 5 segundos antes do início e a média durante o estímulo. A distância vertical mostra a diferença observada. Cada gravação conta uma vez; a comparação é descritiva e não prova causalidade.",
+        "chart_event_aligned_help": "O eixo horizontal mostra segundos desde o início do estímulo: 0 é o início e a faixa sombreada é a sua duração. O eixo vertical mostra o sinal escolhido. Cada linha é uma gravação; lacunas indicam dados em falta. Compare formas e diferenças entre participantes.",
+        "chart_similarity_help": "Cada célula compara duas gravações pela correlação de Pearson (r) da forma temporal, dividida em 20 fases relativas ao estímulo. r perto de 1 indica trajetórias semelhantes; perto de -1, trajetórias inversas. Só contam fases presentes em ambas; não mede emoção nem causalidade.",
         "visualizations_after_processing": "Carregue um vídeo e selecione **Extrair dados** para gerar o output e as respetivas visualizações interativas.",
         "quality_tab": "Qualidade dos dados",
         "signals_tab": "Sinais ao longo do tempo",
@@ -663,13 +669,10 @@ TRANSLATIONS = {
         "stimulus_comparison": "Comparação antes/durante o estímulo",
         "stimulus_metric": "Métrica para comparar",
         "no_stimulus_comparison": "Adicione intervalos de estímulo e processe pelo menos um vídeo para comparar períodos.",
-        "stimulus_comparison_note": "Cada linha liga a média dos 5 segundos antes do estímulo à média durante o intervalo. Cada linha representa uma gravação, não um frame.",
         "advanced_stimulus_analysis": "Análise avançada entre gravações",
         "event_aligned_tab": "Trajetórias alinhadas ao estímulo",
         "similarity_tab": "Similaridade das gravações",
-        "event_aligned_note": "O instante 0 marca o início do estímulo; a faixa sombreada mostra a sua duração. Cada linha representa uma gravação individual.",
         "no_event_aligned_data": "Não há dados suficientes em torno deste estímulo para traçar as gravações.",
-        "similarity_note": "Pearson r compara a forma temporal da métrica, alinhada em 20 fases do estímulo, usando apenas fases observadas em ambas as gravações. Mede semelhança de trajetória, não emoção nem causalidade.",
         "similarity_min_recordings": "São necessárias pelo menos duas gravações com dados suficientes neste intervalo.",
         "finished": "Processamento concluído.",
     },
@@ -732,6 +735,13 @@ TRANSLATIONS = {
         "preview": "Preview of final data ({rows} rows) — {mode}:",
         "download": "Download Parquet",
         "visualizations": "Interactive visualizations",
+        "chart_help_button": "About this chart",
+        "chart_face_score_help": "Each point is a frame-level detection. The horizontal axis is time or frame; the vertical axis is FaceScore (0–1). The red line is your review threshold. A low score calls for image inspection; it does not tell you whether an AU or emotion is correct.",
+        "chart_signals_help": "The horizontal axis is time or frame; the vertical axis is the model output. Choose AUs, emotions, or pose in the controls. Shaded bands mark stimuli. Compare trends, not unlike scales; these values are model estimates.",
+        "chart_heatmap_help": "Each row is an AU and each column is a sampled frame. Color shows the model estimate; blank cells mean missing data, not zero. Shaded bands mark stimuli and help locate changes over time.",
+        "chart_before_during_help": "Each pair of points is one recording: the mean for the 5 seconds before onset and the mean during the stimulus. Vertical distance shows the observed difference. Each recording counts once; this is descriptive, not causal evidence.",
+        "chart_event_aligned_help": "The horizontal axis shows seconds from stimulus onset: 0 is onset and the shaded band is its duration. The vertical axis shows the selected signal. Each line is one recording; gaps indicate missing data. Compare shapes and differences across participants.",
+        "chart_similarity_help": "Each cell compares two recordings using Pearson r for the temporal shape across 20 stimulus-relative phases. Values near 1 indicate similar trajectories; near -1, inverse trajectories. Only phases observed in both recordings count; this is not emotion or causality.",
         "visualizations_after_processing": "Upload a video and select **Extract data** to generate the output and its interactive visualizations.",
         "quality_tab": "Data quality",
         "signals_tab": "Signals over time",
@@ -751,13 +761,10 @@ TRANSLATIONS = {
         "stimulus_comparison": "Before/during stimulus comparison",
         "stimulus_metric": "Metric to compare",
         "no_stimulus_comparison": "Add stimulus windows and process at least one video to compare periods.",
-        "stimulus_comparison_note": "Each line connects the mean of the 5 seconds before a stimulus to the mean during its interval. Each line represents one recording, not one frame.",
         "advanced_stimulus_analysis": "Advanced across-recording analysis",
         "event_aligned_tab": "Event-aligned trajectories",
         "similarity_tab": "Recording similarity",
-        "event_aligned_note": "Time 0 marks stimulus onset; the shaded band shows its duration. Each line represents one recording.",
         "no_event_aligned_data": "There is not enough data around this stimulus to plot the recordings.",
-        "similarity_note": "Pearson r compares the temporal shape of a metric aligned to 20 stimulus phases, using only phases observed in both recordings. It measures trajectory similarity, not emotion or causality.",
         "similarity_min_recordings": "At least two recordings with sufficient data in this interval are required.",
         "finished": "Processing complete.",
     },
@@ -1184,7 +1191,6 @@ sampling_labels = {
     t("custom_sampling"): "custom_fps",
 }
 
-#Core coisas e cenas base e tal
 @st.cache_resource(show_spinner=False)
 def load_detector():
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -1390,6 +1396,15 @@ def style_visualization(fig, height=340):
     return fig
 
 
+def show_chart_explanation(chart_key, description_key):
+    with st.popover(
+        t("chart_help_button"),
+        icon=":material/info:",
+        key=f"chart_help_{chart_key}",
+    ):
+        st.write(t(description_key))
+
+
 def add_stimulus_spans(fig, stimuli):
     for stimulus in stimuli:
         start = float(stimulus["inicio"])
@@ -1545,9 +1560,6 @@ def stimulus_similarity_matrix(results, metric, stimulus_name, phase_bins=20):
     )
 
 
-st.title(t("title"))
-
-#Upload de Dados
 st.subheader(t("upload"))
 uploaded_files = st.file_uploader(t("upload_help"), type=['mp4', 'avi', 'mov'],
     accept_multiple_files=True)
@@ -1560,7 +1572,7 @@ runtime_history = st.session_state.setdefault("processing_runtime_history", {})
 if uploaded_files:
     st.markdown(t("subject_mapping"))
     for file in uploaded_files:
-        #Ler a cache / calculamos os metadados
+      
         fps, frames = get_video_metadata(file.name, file.read())
         videos_info[file.name] = {"fps": fps, "frames": frames}
         
@@ -1570,7 +1582,6 @@ if uploaded_files:
         with col_id:
             video_subjects[file.name] = st.text_input(t("subject_id"), key=f"id_{file.name}", placeholder=t("subject_placeholder"), label_visibility="collapsed")
 
-#Barra lateral para parâmetros tecnicos e tempo de espera
 with st.sidebar:
     st.header(t("controls"))
     
@@ -1640,7 +1651,6 @@ with st.sidebar:
     st.markdown("---")
     st.subheader(t("time_prediction"))
     
-    #Tempo de espera
     if uploaded_files:
         frames_to_analyze = 0
         output_rows = 0
@@ -1679,7 +1689,6 @@ with st.sidebar:
 
 st.markdown("---")
 
-# Metadados 
 estimulos_timestamps = []
 st.subheader(t("metadata"))
 add_metadata = st.checkbox(t("metadata_toggle"), value=False)
@@ -1714,7 +1723,7 @@ st.session_state["stimuli_timestamps"] = estimulos_timestamps
 stimuli_for_processing = st.session_state.get("stimuli_timestamps", [])
 st.markdown("---")
 
-#Py-FEAT
+
 st.subheader(t("processing"))
 processed_results = st.session_state.setdefault("processed_results", {})
 if not processed_results:
@@ -1735,7 +1744,7 @@ if st.button(t("start_extraction"), type="primary"):
         with st.spinner(t("loading")):
             detector = load_detector()
         
-        # barra de loading
+       
         progress_bar = st.progress(0, text=t("preparing"))
         total_files = len(uploaded_files)
         completed_rows = 0
@@ -1819,7 +1828,7 @@ if st.button(t("start_extraction"), type="primary"):
                 if os.path.exists(temp_video_path):
                     os.remove(temp_video_path)
         
-        # FIMMMMM da barra 
+        
         progress_bar.progress(1.0, text=t("finished"))
         st.rerun()
 
@@ -1902,6 +1911,7 @@ for result in processed_results.values():
                     width="stretch",
                     key=f"confidence_chart_{result_key}",
                 )
+                show_chart_explanation(f"quality_{result_key}", "chart_face_score_help")
 
         with signals_tab:
             signal_categories = [
@@ -1952,6 +1962,7 @@ for result in processed_results.values():
                         width="stretch",
                         key=f"signals_chart_{result_key}",
                     )
+                    show_chart_explanation(f"signals_{result_key}", "chart_signals_help")
 
         with heatmap_tab:
             au_columns = visualization_columns(result_df, "Action Units")
@@ -1986,6 +1997,7 @@ for result in processed_results.values():
                     width="stretch",
                     key=f"au_heatmap_{result_key}",
                 )
+                show_chart_explanation(f"heatmap_{result_key}", "chart_heatmap_help")
 
     st.dataframe(result_df.head(50), use_container_width=True)
     st.download_button(
@@ -2058,7 +2070,7 @@ if results_with_stimuli:
                     width="stretch",
                     key="stimulus_comparison_chart",
                 )
-                st.caption(t("stimulus_comparison_note"))
+                show_chart_explanation("stimulus_comparison", "chart_before_during_help")
         else:
             st.info(t("no_stimulus_comparison"))
 
@@ -2151,7 +2163,7 @@ if results_with_stimuli:
                         width="stretch",
                         key="event_aligned_chart",
                     )
-                    st.caption(t("event_aligned_note"))
+                    show_chart_explanation("event_aligned", "chart_event_aligned_help")
 
             with similarity_tab:
                 similarity_category_label = st.radio(
@@ -2214,4 +2226,4 @@ if results_with_stimuli:
                         width="stretch",
                         key="trajectory_similarity_chart",
                     )
-                    st.caption(t("similarity_note"))
+                    show_chart_explanation("trajectory_similarity", "chart_similarity_help")
