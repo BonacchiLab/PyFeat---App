@@ -2,7 +2,7 @@
 
 FEDET (Facial Expression Data Extraction Tool) is a Streamlit research interface for extracting and exploring facial-expression measures from videos with [Py-Feat](https://py-feat.org/).
 
-**Current status:** research prototype. Video processing, visualizations, and Parquet export are implemented. The application is currently maintained as a single Python file, and no project test suite is included yet.
+**Current status:** prototype. Video processing, visualizations, and Parquet export are implemented. 
 
 ## Run locally
 
@@ -42,11 +42,3 @@ Exports contain Py-Feat predictions and the `subject_id` and `input_file` identi
 - `app.py` contains the Streamlit interface, detector setup, sampling and stimulus processing, plots, and Parquet export.
 - `requirements.txt` pins the Python dependencies.
 - `Au-Reference.jpg` is displayed in the in-app introduction guide.
-
-
-## Notes for development
-
-- The interface currently selects English directly in `app.py`; Portuguese translations are present but are not exposed as a language selector.
-- The Py-Feat detector uses its default model configuration and selects CUDA when available, otherwise CPU.
-- Processed results and runtime estimates are held in Streamlit session state
-- The `.gitignore` currently excludes the virtual environment and Python cache files, but not uploaded videos or generated results. 
