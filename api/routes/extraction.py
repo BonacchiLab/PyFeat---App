@@ -2,6 +2,7 @@
 
 import json
 import asyncio
+import math
 import tempfile
 import time
 import uuid
@@ -9,6 +10,7 @@ from pathlib import Path
 from typing import List
 
 import cv2
+import pandas as pd
 from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 
@@ -51,6 +53,27 @@ async def start_extraction(
     return {"task_id": task_id, "status_url": f"/api/extractions/{task_id}", "events_url": f"/api/extractions/{task_id}/events"}
 
 
+@router.post("/metadata")
+async def video_metadata(file: UploadFile = File(...)):
+    filename = Path(file.filename or "video").name
+    if Path(filename).suffix.lower() not in ALLOWED_EXTENSIONS:
+        raise HTTPException(status_code=415, detail="Supported formats: MP4, AVI, MOV")
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=Path(filename).suffix.lower()) as temp_video:
+            temp_video.write(await file.read())
+            temp_path = Path(temp_video.name)
+        cap = cv2.VideoCapture(str(temp_path))
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        cap.release()
+        fps = fps if fps > 0 else 30.0
+        return {"fps": fps, "frame_count": frame_count, "duration_seconds": frame_count / fps if frame_count else 0.0}
+    finally:
+        if temp_path and temp_path.exists():
+            temp_path.unlink(missing_ok=True)
+
+
 def _process_video(task_id, filename, video_bytes, subject_id, sampling_mode, target_fps, stimuli):
     video_path = None
     try:
@@ -61,10 +84,12 @@ def _process_video(task_id, filename, video_bytes, subject_id, sampling_mode, ta
             video_path = Path(temp_video.name)
         cap = cv2.VideoCapture(str(video_path))
         fps = cap.get(cv2.CAP_PROP_FPS)
+        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         cap.release()
         if not fps or fps <= 0:
             fps = 30.0
         skip_frames = 1 if sampling_mode == "all_frames" else calculate_skip_frames(fps, target_fps if sampling_mode == "custom_fps" else 1.0)
+        expected_rows = int(math.ceil(frame_count / skip_frames)) if frame_count else 0
 
         def update_progress(batch_number, total_batches):
             ratio = batch_number / total_batches if total_batches else 0.0
@@ -80,7 +105,8 @@ def _process_video(task_id, filename, video_bytes, subject_id, sampling_mode, ta
         output_df["input_file"] = filename
         output_path = RESULTS_DIR / f"{task_id}.parquet"
         output_path.write_bytes(dataframe_to_parquet_bytes(output_df))
-        task_progress.update(task_id, status="completed", progress=1.0, message="Extraction completed", result_path=str(output_path), rows=len(output_df))
+        detected_frames = int(pd.to_numeric(output_df["frame"], errors="coerce").nunique()) if "frame" in output_df.columns else len(output_df)
+        task_progress.update(task_id, status="completed", progress=1.0, message="Extraction completed", result_path=str(output_path), rows=len(output_df), expected_rows=expected_rows, detected_frames=detected_frames)
     except Exception as exc:
         task_progress.update(task_id, status="failed", message="Extraction failed", error=f"{type(exc).__name__}: {exc}")
     finally:
@@ -124,3 +150,41 @@ def download_result(task_id: str):
         raise HTTPException(status_code=409, detail="Extraction is not complete")
     path = Path(task["result_path"])
     return FileResponse(path, media_type="application/vnd.apache.parquet", filename=f"{task_id}_pyfeat.parquet")
+
+
+@router.get("/{task_id}/preview")
+def preview_result(task_id: str, limit: int = 50, threshold: float = 0.9):
+    task = task_progress.get(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if task["status"] != "completed" or not task.get("result_path"):
+        raise HTTPException(status_code=409, detail="Extraction is not complete")
+    path = Path(task["result_path"])
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Result file not found")
+    df = pd.read_parquet(path)
+    safe_limit = min(max(limit, 1), 200)
+    records = json.loads(df.head(safe_limit).to_json(orient="records", date_format="iso"))
+    scores = pd.to_numeric(df["FaceScore"], errors="coerce") if "FaceScore" in df.columns else pd.Series(dtype="float64")
+    time_column = next((column for column in ("time_sec", "time_start_sec", "frame") if column in df.columns), None)
+    numeric_columns = [column for column in df.select_dtypes(include="number").columns if column != time_column]
+    chart_step = max(1, (len(df) + 599) // 600)
+    chart_df = df.iloc[::chart_step].copy()
+    chart_points = json.loads(chart_df[[time_column, *numeric_columns]].to_json(orient="records")) if time_column else []
+    au_columns = sorted((column for column in numeric_columns if column.startswith("AU") and column[2:].isdigit()), key=lambda column: int(column[2:]))
+    emotion_names = ["neutral", "happiness", "sadness", "anger", "fear", "disgust", "surprise"]
+    emotion_columns = [column for column in emotion_names if column in numeric_columns]
+    pose_columns = [column for column in ("Pitch", "Roll", "Yaw") if column in numeric_columns]
+    return {
+        "columns": list(df.columns),
+        "rows": len(df),
+        "preview": records,
+        "face_score_median": float(scores.median()) if scores.notna().any() else None,
+        "face_score_missing": int(scores.isna().sum()) if len(scores) else None,
+        "face_score_flagged": int(scores.lt(threshold).sum()) if len(scores) else None,
+        "detected_frames": task.get("detected_frames", len(df)),
+        "expected_rows": task.get("expected_rows", len(df)),
+        "time_column": time_column,
+        "chart_points": chart_points,
+        "chart_columns": {"action_units": au_columns, "emotions": emotion_columns, "head_pose": pose_columns},
+    }

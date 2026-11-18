@@ -12,13 +12,11 @@ import cv2
 import requests
 import plotly.express as px
 import plotly.graph_objects as go
-from core.processing import (
-    aggregate_by_second,
-    apply_stimulus_metadata,
-    calculate_skip_frames,
-    dataframe_to_parquet_bytes,
-    format_seconds_to_clock,
-    prepare_frame_dataframe,
+from core.processing import calculate_skip_frames
+from core.analytics import (
+    compare_stimulus_windows,
+    event_aligned_signals,
+    stimulus_similarity_matrix,
 )
 
 BASELINE_SECONDS_PER_FRAME = 4.0
@@ -1236,49 +1234,6 @@ def has_runtime_measurements(runtime_history):
     return any(history["rows"] > 0 for history in runtime_history.values())
 
 
-def iter_with_progress(iterable, on_progress):
-    total = len(iterable)
-    for batch_number, item in enumerate(iterable, start=1):
-        yield item
-        on_progress(batch_number, total)
-
-
-def report_video_progress(
-    batch_number,
-    total_batches,
-    *,
-    progress_bar,
-    completed_rows,
-    expected_rows,
-    total_rows,
-    video_started_at,
-    current,
-    total,
-    name,
-):
-    inference_progress = batch_number / total_batches if total_batches else 0.0
-    video_progress = min(inference_progress * 0.95, 0.95)
-    work_done = completed_rows + expected_rows * video_progress
-    overall_progress = min(work_done / max(total_rows, 1), 0.999)
-    rows_observed = expected_rows * inference_progress
-    elapsed = time.perf_counter() - video_started_at
-    remaining_rows = max(total_rows - work_done, 0)
-    remaining_seconds = elapsed * remaining_rows / rows_observed if rows_observed else 0
-    remaining_total = max(0, int(round(remaining_seconds)))
-    progress_bar.progress(
-        overall_progress,
-        text=t(
-            "processing_video_progress",
-            current=current,
-            total=total,
-            name=name,
-            percent=video_progress * 100,
-            minutes=remaining_total // 60,
-            seconds=remaining_total % 60,
-        ),
-    )
-
-
 def visualization_time(df):
     for column in ("time_sec", "time_start_sec", "frame"):
         if column in df.columns:
@@ -1339,143 +1294,6 @@ def add_stimulus_spans(fig, stimuli):
             annotation_position="top left",
         )
     return fig
-
-
-def compare_stimulus_windows(results, metric):
-    records = []
-    for result in results.values():
-        df = result["dataframe"]
-        if metric not in df.columns:
-            continue
-        times, _ = visualization_time(df)
-        values = pd.to_numeric(df[metric], errors="coerce")
-        for stimulus in result.get("stimuli", []):
-            start = float(stimulus["inicio"])
-            end = float(stimulus["fim"])
-            if end < start:
-                start, end = end, start
-            before = values.loc[times.ge(start - 5) & times.lt(start)].mean()
-            during = values.loc[times.ge(start) & times.lt(end)].mean()
-            if pd.isna(before) or pd.isna(during):
-                continue
-            case = f"{result['subject_id']} · {df['input_file'].iloc[0]} · {stimulus['nome']}"
-            for period, value in (("Before", before), ("During", during)):
-                records.append({
-                    "case": case,
-                    "subject": result["subject_id"],
-                    "stimulus": stimulus["nome"],
-                    "period": period,
-                    "value": value,
-                })
-    return pd.DataFrame.from_records(records)
-
-
-def event_aligned_signals(results, metric, stimulus_name, padding=5.0):
-    records = []
-    for result in results.values():
-        df = result["dataframe"]
-        if metric not in df.columns or df.empty:
-            continue
-        stimulus = next(
-            (item for item in result.get("stimuli", []) if item["nome"] == stimulus_name),
-            None,
-        )
-        if stimulus is None:
-            continue
-
-        start = float(stimulus["inicio"])
-        end = float(stimulus["fim"])
-        if end < start:
-            start, end = end, start
-        times, time_column = visualization_time(df)
-        values = pd.to_numeric(df[metric], errors="coerce")
-        window = times.ge(start - padding) & times.le(end + padding)
-        case = f"{result['subject_id']} · {df['input_file'].iloc[0]}"
-        for relative_time, value in zip(times.loc[window] - start, values.loc[window]):
-            if pd.isna(relative_time) or pd.isna(value):
-                continue
-            records.append({
-                "relative_time": float(relative_time),
-                "value": float(value),
-                "recording": case,
-                "time_column": time_column,
-                "stimulus_duration": end - start,
-            })
-    return pd.DataFrame.from_records(records)
-
-
-def pearson_correlation(left_values, right_values):
-    if len(left_values) < 4:
-        return None
-    left_mean = sum(left_values) / len(left_values)
-    right_mean = sum(right_values) / len(right_values)
-    left_centered = [value - left_mean for value in left_values]
-    right_centered = [value - right_mean for value in right_values]
-    left_sum = sum(value * value for value in left_centered)
-    right_sum = sum(value * value for value in right_centered)
-    if left_sum == 0 or right_sum == 0:
-        return None
-    covariance = sum(
-        left_value * right_value
-        for left_value, right_value in zip(left_centered, right_centered)
-    )
-    return covariance / math.sqrt(left_sum * right_sum)
-
-
-def stimulus_similarity_matrix(results, metric, stimulus_name, phase_bins=20):
-    recording_series = {}
-    for result in results.values():
-        df = result["dataframe"]
-        if metric not in df.columns or df.empty:
-            continue
-        stimulus = next(
-            (item for item in result.get("stimuli", []) if item["nome"] == stimulus_name),
-            None,
-        )
-        if stimulus is None:
-            continue
-
-        start = float(stimulus["inicio"])
-        end = float(stimulus["fim"])
-        if end < start:
-            start, end = end, start
-        if end <= start:
-            continue
-        times, _ = visualization_time(df)
-        values = pd.to_numeric(df[metric], errors="coerce")
-        within_window = times.ge(start) & times.lt(end) & values.notna()
-        phase_data = pd.DataFrame({
-            "phase": (times.loc[within_window] - start) / (end - start),
-            "value": values.loc[within_window],
-        })
-        if phase_data.empty:
-            continue
-        phase_data["phase_bin"] = (phase_data["phase"] * phase_bins).astype(int).clip(0, phase_bins - 1)
-        binned = phase_data.groupby("phase_bin")["value"].mean().to_dict()
-        if len(binned) < 4:
-            continue
-        case = f"{result['subject_id']} · {df['input_file'].iloc[0]}"
-        recording_series[case] = binned
-
-    labels = list(recording_series)
-    correlations = []
-    shared_bin_counts = []
-    for row_label in labels:
-        correlation_row = []
-        count_row = []
-        for column_label in labels:
-            common_bins = sorted(set(recording_series[row_label]) & set(recording_series[column_label]))
-            left_values = [recording_series[row_label][phase] for phase in common_bins]
-            right_values = [recording_series[column_label][phase] for phase in common_bins]
-            correlation_row.append(pearson_correlation(left_values, right_values))
-            count_row.append(len(common_bins))
-        correlations.append(correlation_row)
-        shared_bin_counts.append(count_row)
-
-    return (
-        pd.DataFrame(correlations, index=labels, columns=labels, dtype="float64"),
-        pd.DataFrame(shared_bin_counts, index=labels, columns=labels, dtype="int64"),
-    )
 
 
 st.subheader(t("upload"))

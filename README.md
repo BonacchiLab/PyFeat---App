@@ -1,54 +1,46 @@
 # FEDET
 
-FEDET (Facial Expression Data Extraction Tool) is a Streamlit research interface for extracting and exploring facial-expression measures from videos with [Py-Feat](https://py-feat.org/).
-
-**Current status:** prototype. Video processing, visualizations, and Parquet export are implemented. 
+FEDET (Facial Expression Data Extraction Tool) is a local research application for extracting and exploring facial-expression measures from videos with [Py-Feat](https://py-feat.org/). The current frontend is React, TypeScript, and Vite; FastAPI runs video processing in the Python backend. The original Streamlit app remains available during the frontend migration.
 
 ## Run locally
 
-The current development environment uses Python 3.11.9. Other Python versions have not been validated (at least for now).
+Use Python 3.11 and Node.js LTS. Install Python requirements in the project virtual environment and frontend dependencies once:
 
-### Run the local API
+```powershell
+python -m pip install -r requirements.txt
+cd frontend
+npm install
+```
 
-The modular FastAPI backend can be started separately from the current Streamlit interface:
+Start the API from the project root:
 
-```bash
+```powershell
 python -m uvicorn api.main:app --host 127.0.0.1 --port 8000
 ```
 
-The API exposes `/health`, `/api/system`, `/api/content/guide/{pt|en}`, and video extraction endpoints under `/api/extractions`. Interactive API documentation is available at `/docs` while the server is running.
-
-### Windows
+In a second terminal, start the frontend:
 
 ```powershell
-py -3.11 -m venv .venv
-.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
-python -m streamlit run app.py
+cd frontend
+npm run dev
 ```
 
-### macOS / Linux
+Open the local address printed by Vite (usually `http://localhost:5173`). The FastAPI documentation is at `http://127.0.0.1:8000/docs`.
 
-```bash
-python3.11 -m venv .venv
-source .venv/bin/activate
-python -m pip install -r requirements.txt
-python -m streamlit run app.py
-```
+The legacy Streamlit interface can still be run from the project root with `python -m streamlit run app.py`.
 
 ## Current workflow
 
-1. Upload one or more MP4, AVI, or MOV videos and assign each a subject ID.
-2. Choose to analyze every frame, approximately one frame per second, or a custom sampling rate.
-3. Optionally enter stimulus names and start/end times in seconds relative to each video.
-4. Run extraction, inspect the plots and data preview, and download one Parquet file per video.
+Upload MP4, AVI, or MOV videos, assign subject IDs, choose frame sampling, and optionally configure stimulus names and windows shared across or specific to each video. The frontend submits one extraction task per video to the API, shows progress, previews the first 50 output rows, displays quality summaries and interactive plots, and downloads one Parquet file per video.
 
-The interface includes detection-quality summaries, Action Unit, emotion, and head-pose plots, an Action Unit heatmap, and stimulus comparisons across recordings. Stimulus analyses include before/during summaries, event-aligned trajectories, and recording similarity.
+The React interface currently includes a guide, FaceScore quality view, signal plots, AU heatmap, before/during stimulus comparison, and event-aligned trajectories. The similarity matrix was intentionally removed. The frontend is still being brought to parity with Streamlit.
 
-Exports contain Py-Feat predictions and the `subject_id` and `input_file` identifiers. The time-related columns depend on sampling mode: frame-based output includes `time_sec`; the approximately 1 FPS mode aggregates observations by second.
+Exports contain Py-Feat predictions plus `subject_id` and `input_file`. Time columns depend on sampling mode: frame-based results include `time_sec`; approximately 1 FPS results are aggregated by second.
 
-## Code and assets
+## Project layout
 
-- `app.py` contains the Streamlit interface, detector setup, sampling and stimulus processing, plots, and Parquet export.
-- `requirements.txt` pins the Python dependencies.
-- `Au-Reference.jpg` is displayed in the in-app introduction guide.
+- `frontend/`: React, TypeScript, and Vite interface.
+- `api/`: FastAPI endpoints for extraction tasks, progress, metadata, previews, and downloads.
+- `core/`: Py-Feat detector, processing, analytics, and task progress modules.
+- `app.py`: legacy Streamlit interface retained during migration.
+- `requirements.txt` and `frontend/package.json`: Python and frontend dependencies.

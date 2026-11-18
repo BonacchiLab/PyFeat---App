@@ -1,0 +1,191 @@
+<nav class="guide-nav" aria-label="Guide navigation">
+            <h2>In this guide</h2>
+            <a href="#getting-started">Getting Started</a>
+            <a href="#preparing-videos">Preparing Your Videos</a>
+            <a href="#sampling">Sampling Modes</a>
+            <a href="#metadata">Experimental Metadata and Stimuli</a>
+            <a href="#landmarks">Facial Landmarks and Face Detection</a>
+            <a href="#action-units">Action Units</a>
+            <a href="#au-reference">AU Reference</a>
+            <a href="#emotions">Emotions and Facial Metrics</a>
+            <a href="#understanding-output">Understanding the Output Dataset</a>
+            <a href="#interpretation"><span class="guide-nav-warning" aria-hidden="true">&#9888;</span>Interpreting the Data</a>
+            <a href="#good-practices">Good Practices and Limitations</a>
+        </nav>
+        <div class="guide-content">
+            <section class="guide-section" id="getting-started">
+                <h2>Getting Started</h2>
+                <p>This interface transforms videos into structured data about facial activity over time. No programming is required: follow the steps in the analysis workspace.</p>
+                <ol>
+                    <li>Upload one or more videos in a supported format.</li>
+                    <li>Assign a <strong>Subject ID</strong> to each video.</li>
+                    <li>Choose the sampling mode that fits your research question.</li>
+                    <li>Optionally define the time windows for experimental stimuli.</li>
+                    <li>Select <strong>Extract data</strong>, wait for processing, and download each Parquet file.</li>
+                </ol>
+                <div class="guide-note"><p>The result is a dataset where each row represents a facial observation at a frame or within a one-second interval.</p></div>
+            </section>
+
+            <section class="guide-section" id="preparing-videos">
+                <h2>Preparing Your Videos</h2>
+                <p>For more consistent detections, use videos where the face is visible for most of the recording and occupies a reasonable area of the image.</p>
+                <ul>
+                    <li>Avoid very dark lighting, strong backlighting, and abrupt exposure changes.</li>
+                    <li>Avoid very small, partially occluded, or extremely rotated faces.</li>
+                    <li>Check whether the video contains only the relevant participants, since multiple faces may be detected.</li>
+                    <li>Keep quality and resolution similar across videos that will be compared.</li>
+                </ul>
+            </section>
+
+            <section class="guide-section" id="sampling">
+                <h2>Sampling Modes</h2>
+                <ul>
+                    <li><strong>Every frame:</strong> preserves the highest temporal resolution and is useful for fast phenomena, but creates larger datasets and takes longer.</li>
+                    <li><strong>1 FPS - representative frame:</strong> selects approximately one frame per second. It is faster and more compact, but may miss brief movements.</li>
+                    <li><strong>Custom sampling:</strong> sets a target frequency in frames per second. The actual frequency is approximate and depends on the video's frame rate.</li>
+                </ul>
+                <div class="guide-note"><p>Choose the mode based on the time scale of your hypothesis. If a relevant expression is brief, a higher custom frequency may preserve it.</p></div>
+            </section>
+
+            <section class="guide-section" id="metadata">
+                <h2>Experimental Metadata and Stimuli</h2>
+                <p>Enable stimulus markers when you want to relate facial detections to specific moments in the experimental protocol.</p>
+                <ol>
+                    <li>Indicate how many stimuli are in the session.</li>
+                    <li>Define the name of each stimulus.</li>
+                    <li>Enter the start and end seconds relative to the beginning of the video.</li>
+                    <li>Check that the intervals match the protocol; overlaps are preserved in separate columns.</li>
+                </ol>
+                <p>The dataset includes one column, <strong>Stimulus_1</strong>, <strong>Stimulus_2</strong>, etc., for each stimulus. Each column contains its configured name inside that interval and is blank outside it. When intervals overlap, both stimulus columns are populated.</p>
+            </section>
+
+            <section class="guide-section" id="landmarks">
+                <h2>Facial Landmarks and Face Detection</h2>
+                <p><strong>Facial landmarks</strong> are reference points placed at specific facial locations, such as the eyebrows, eyes, nose, mouth, and facial outline. They describe facial geometry and movement over time.</p>
+                <p><strong>Face detection</strong> locates the face in the image and may provide a bounding box, or <strong>face box</strong>. Landmarks and face boxes help verify whether the face was detected correctly and support the study of facial movement.</p>
+            </section>
+
+            <section class="guide-section" id="action-units">
+                <h2>Action Units</h2>
+                <p>An <strong>Action Unit (AU)</strong> describes an observable movement in a facial region according to the <strong>Facial Action Coding System (FACS)</strong>. For example, an AU may represent eyebrow raising, cheek raising, or lip separation.</p>
+                <p>AUs describe facial movement; they are not emotions. An emotional expression can involve several AUs at once, and the same AU can occur in different contexts or expressions.</p>
+                <div class="guide-note"><p>A higher AU value means that the model found stronger evidence for that facial movement. It should not be interpreted alone as proof of an emotion or intention.</p></div>
+            </section>
+
+            <section class="guide-section" id="au-reference">
+                <h2>AU Reference</h2>
+                <p>The official Py-Feat reference connects each AU with its FACS name, involved musculature, commonly associated expressions, and supporting models.</p>
+                <ul>
+                    <li><strong>AU1 - Inner Brow Raiser:</strong> movement of the inner part of the eyebrows.</li>
+                    <li><strong>AU4 - Brow Lowerer:</strong> drawing the eyebrows together and downward.</li>
+                    <li><strong>AU6 - Cheek Raiser:</strong> raising the cheeks and narrowing the eye opening.</li>
+                    <li><strong>AU12 - Lip Corner Puller:</strong> raising the corners of the mouth.</li>
+                    <li><strong>AU15 - Lip Corner Depressor:</strong> lowering the corners of the mouth.</li>
+                    <li><strong>AU25 - Lips Part:</strong> separating the lips without necessarily involving the jaw.</li>
+                </ul>
+                <p class="guide-links">For the complete searchable table, see the <a href="https://py-feat.org/pages/au_reference/" target="_blank">official Py-Feat AU Reference</a>.</p>
+                <img src="data:image/jpeg;base64,AU_REFERENCE_IMAGE" alt="Facial Action Unit reference diagram" style="display: block; max-width: min(100%, 520px); height: auto; margin: 1rem auto 0; border-radius: 7px;">
+            </section>
+
+            <section class="guide-section" id="emotions">
+                <h2>Emotions and Facial Metrics</h2>
+                <p>This application uses Py-Feat's default emotion model to estimate facial-expression categories such as <strong>Neutral, Happy, Sad, Surprise, Fear, Disgust</strong>, and <strong>Anger</strong>. These estimates are based on the facial appearance observed in each video frame.</p>
+                <p>Probabilities or values should be treated as indicators for analysis, not as direct measurements of a person's internal emotional state. Interpretation should consider context, individual variability, and the experimental design.</p>
+            </section>
+
+            <section class="guide-section" id="understanding-output">
+                <h2>Understanding the Output Dataset</h2>
+                <p>The Parquet file contains Py-Feat predictions and identifiers added by this interface.</p>
+                <ul>
+                    <li><strong>subject_id:</strong> participant identifier assigned during upload.</li>
+                    <li><strong>input_file:</strong> source video name.</li>
+                    <li><strong>frame:</strong> frame number in the original video.</li>
+                    <li><strong>time_sec:</strong> approximate frame time in seconds in Every frame mode.</li>
+                    <li><strong>approx_time:</strong> readable time representation, such as 00:12.</li>
+                    <li><strong>second, time_start_sec, and time_end_sec:</strong> time interval created when data are aggregated by second.</li>
+                    <li><strong>Stimulus_1, Stimulus_2, etc.:</strong> one column per stimulus; a row can be marked in multiple columns when intervals overlap.</li>
+                    <li><strong>Action Units, emotions, landmarks, and other metrics:</strong> facial predictions produced by the Py-Feat model.</li>
+                </ul>
+                <div class="guide-note"><p>Always check the column names before analysis.</p></div>
+            </section>
+
+            <section class="guide-section" id="interpretation">
+                <h2>Interpreting the Data</h2>
+
+                <h3>1. Action Units (AUs): Separating Signal from Noise</h3>
+                <ul>
+                    <li><strong>Empirical thresholds:</strong> Treat AU readings below <strong>0.10–0.15</strong> as possible baseline noise. Calibrate this range against your detector, video quality, and participant baseline; do not apply it as a universal cutoff.</li>
+                    <li><strong>Anatomical co-occurrence:</strong> Look for anatomically plausible AU clusters. For example, AU6 with AU12 can support a smile interpretation. An isolated AU may reflect noise, a social gesture, or another movement.</li>
+                    <li><strong>Baseline deviation:</strong> Compare peaks with the same participant's resting, neutral face. A change from that baseline is often more informative than the raw value.</li>
+                    <li><strong>Temporal persistence:</strong> Filter isolated, single-frame spikes that may come from tracking artifacts. Look for movements lasting at least <strong>3–5 consecutive frames</strong> (roughly <strong>100–200 ms</strong>, depending on frame rate and sampling).</li>
+                </ul>
+
+                <h3>2. Emotion Probabilities: Value vs. Misinterpretation</h3>
+                <ul>
+                    <li><strong>Flat distributions:</strong> If several emotion scores fall between <strong>0.20 and 0.30</strong>, treat the result as ambiguous rather than assigning a clear emotion. A single dominant score, such as <strong>above 0.70</strong>, is a stronger model signal, not proof of a person's psychological state.</li>
+                    <li><strong>Relative change:</strong> Focus on changes across conditions, such as a rise from <strong>0.05 to 0.45</strong>, rather than treating an absolute probability as a definitive measurement.</li>
+                    <li><strong>Contextual synchrony:</strong> Align emotion scores with the exact stimulus timestamp. Compare changes before, during, and after the stimulus.</li>
+                </ul>
+
+                <h3>3. Advanced Tracking and Geometric Metrics (Critical Sanity Checks)</h3>
+                <ul>
+                    <li><strong>Face detection confidence (<code>Face_Score</code>):</strong> Flag or exclude data points below <strong>0.90–0.95</strong> for closer review. Choose a cutoff that fits your data and analysis goals.</li>
+                    <li><strong>Head pose (<code>Pitch</code>, <code>Roll</code>, <code>Yaw</code>):</strong> Treat rotations above roughly <strong>15–20 degrees</strong> as a reason to inspect the frame. Larger rotations can distort visible facial geometry and affect AU estimates.</li>
+                    <li><strong>Landmark jitter and variance:</strong> Look for sudden, implausible jumps in landmark coordinates. These often indicate tracking failure, not a micro-expression.</li>
+                    <li><strong>Discontinuities and NaNs:</strong> Identify frames where the face is occluded or missing. Preserve these gaps as missing data; do not interpolate across them without a justified method.</li>
+                </ul>
+
+                <h3>Summary Checklist for Data Cleaning</h3>
+                <div class="guide-table-wrap">
+                    <table class="guide-table">
+                        <thead>
+                            <tr>
+                                <th>Data Point</th>
+                                <th>Discard as Noise if...</th>
+                                <th>Keep as Valuable Signal if...</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><strong>AU Values</strong></td>
+                                <td>Readings stay below approximately <strong>0.10–0.15</strong>, appear as isolated spikes, or lack a plausible AU cluster.</td>
+                                <td>Values rise above the participant's neutral baseline, form a plausible cluster, and persist across consecutive frames.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Emotion Values</strong></td>
+                                <td>Scores are spread across several categories around <strong>0.20–0.30</strong>, with no clear dominant category.</td>
+                                <td>One category becomes strongly dominant, or its score changes meaningfully across the stimulus context. Treat it as a model estimate, not a psychological fact.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Face_Score</strong></td>
+                                <td>Confidence falls below your chosen review threshold, typically <strong>0.90–0.95</strong>.</td>
+                                <td>Confidence meets your threshold and the face is visibly tracked well.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Head Pose Angles</strong></td>
+                                <td><code>Pitch</code>, <code>Roll</code>, or <code>Yaw</code> exceed roughly <strong>15–20 degrees</strong>, or change abruptly.</td>
+                                <td>Pose remains stable enough for reliable facial visibility and comparison.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Landmark Coordinates</strong></td>
+                                <td>Coordinates jump unnaturally, become discontinuous, or are missing during occlusion.</td>
+                                <td>Coordinates move smoothly and consistently with visible facial motion.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="guide-section" id="good-practices">
+                <h2>Good Practices and Limitations</h2>
+                <ul>
+                    <li>Visually inspect a sample of the videos and results before statistical analysis.</li>
+                    <li>Do not treat an emotion prediction as definitive evidence of an emotional state.</li>
+                    <li>Record the sampling mode, stimulus intervals, and any data-exclusion decisions.</li>
+                    <li>Take extra care with occlusion, glasses, masks, lighting, pose, low resolution, and multiple faces.</li>
+                    <li>Consult the official documentation and model licenses before reusing results in other contexts.</li>
+                </ul>
+                <div class="guide-note"><p>Py-Feat recommends checking detections carefully. Computer-vision models can produce unexpected results in real-world videos, even when they perform well on benchmarks.</p></div>
+                <p class="guide-links">References: <a href="https://py-feat.org/" target="_blank">Py-Feat</a> | <a href="https://py-feat.org/pages/models/" target="_blank">Models</a> | <a href="https://py-feat.org/pages/faqs/" target="_blank">FAQs and known issues</a></p>
+            </section>
+        </div>
