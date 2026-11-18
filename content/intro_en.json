@@ -1,0 +1,10 @@
+{
+  "language": "en",
+  "title": "FEDET — User guide",
+  "sections": [
+    {"id": "getting-started", "title": "Getting started", "body": "Upload one or more videos, assign each subject an ID, choose a sampling mode, and optionally configure stimuli. Extraction produces facial predictions, visualizations, and a Parquet file."},
+    {"id": "sampling", "title": "Sampling", "body": "Frame-level sampling preserves more temporal detail. Approximately 1 FPS or a custom frequency reduces the number of analyzed frames."},
+    {"id": "stimuli", "title": "Stimuli", "body": "Intervals are set in seconds relative to the start of each video. Each recording can have its own windows or share windows with the other videos."},
+    {"id": "limitations", "title": "Interpretation", "body": "Model predictions are estimates to support analysis. Inspect the data and consider the experimental context before drawing conclusions."}
+  ]
+}

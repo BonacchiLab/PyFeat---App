@@ -1,0 +1,10 @@
+{
+  "language": "pt",
+  "title": "FEDET — Guia de utilização",
+  "sections": [
+    {"id": "getting-started", "title": "Como começar", "body": "Carregue um ou mais vídeos, atribua um ID a cada sujeito, escolha a amostragem e, opcionalmente, configure estímulos. A extração produz previsões faciais, visualizações e um ficheiro Parquet."},
+    {"id": "sampling", "title": "Amostragem", "body": "A amostragem por frame preserva mais detalhe temporal. A amostragem de aproximadamente 1 FPS ou uma frequência personalizada reduz o número de frames analisados."},
+    {"id": "stimuli", "title": "Estímulos", "body": "Os intervalos são definidos em segundos relativos ao início do vídeo. Cada gravação pode ter janelas próprias ou partilhar as mesmas janelas com os restantes vídeos."},
+    {"id": "limitations", "title": "Interpretação", "body": "As previsões do modelo são estimativas para apoiar a análise. Inspecione os dados e considere o contexto experimental antes de tirar conclusões."}
+  ]
+}

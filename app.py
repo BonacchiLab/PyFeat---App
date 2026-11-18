@@ -1,23 +1,28 @@
 import base64
 import math
 import re
-import threading
+import json
 import time
-from functools import partial
 from io import BytesIO
 import streamlit as st
 import pandas as pd
 import tempfile
 import os
 import cv2
-import torch
-from feat import Detector
-import feat.detector as feat_detector
+import requests
 import plotly.express as px
 import plotly.graph_objects as go
+from core.processing import (
+    aggregate_by_second,
+    apply_stimulus_metadata,
+    calculate_skip_frames,
+    dataframe_to_parquet_bytes,
+    format_seconds_to_clock,
+    prepare_frame_dataframe,
+)
 
-DETECT_VIDEO_PROGRESS_LOCK = threading.Lock()
 BASELINE_SECONDS_PER_FRAME = 4.0
+API_BASE_URL = "http://127.0.0.1:8000"
 
 st.set_page_config(page_title="FEDET powered by py-feat", layout="wide")
 st.markdown(
@@ -1195,11 +1200,6 @@ sampling_labels = {
     t("custom_sampling"): "custom_fps",
 }
 
-@st.cache_resource(show_spinner=False)
-def load_detector():
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    return Detector(device=device)
-
 @st.cache_data(show_spinner=False)
 def get_video_metadata(file_name, file_bytes):
     """Lê os metadados do vídeo usando OpenCV sem bloquear a app."""
@@ -1216,16 +1216,6 @@ def get_video_metadata(file_name, file_bytes):
         os.remove(tmp_path)
         
     return fps if fps > 0 else 30.0, total_frames
-
-
-def format_seconds_to_clock(seconds):
-    minutes = int(seconds // 60)
-    secs = int(seconds % 60)
-    return f"{minutes:02d}:{secs:02d}"
-
-
-def calculate_skip_frames(video_fps, target_fps):
-    return max(1, int(round(float(video_fps) / float(target_fps))))
 
 
 def estimate_processing_seconds(sampled_rows, sampling_mode, runtime_history):
@@ -1287,82 +1277,6 @@ def report_video_progress(
             seconds=remaining_total % 60,
         ),
     )
-
-
-def aggregate_by_second(df, fps):
-    """Aggregate a per-frame dataframe into one row per second, using the mean of all frames in each second."""
-    if df is None or df.empty or "frame" not in df.columns:
-        return df
-
-    df = df.copy()
-    df["_frame_index"] = pd.to_numeric(df["frame"], errors="coerce")
-    df["_second_bin"] = (df["_frame_index"] / float(fps)).astype(float).floordiv(1).astype(int)
-
-    numeric_cols = [
-        col for col in df.columns
-        if col not in {"input", "frame", "approx_time", "_frame_index", "_second_bin"}
-        and pd.api.types.is_numeric_dtype(df[col])
-    ]
-
-    if not numeric_cols:
-        return df
-
-    grouped = df.groupby("_second_bin", as_index=False)[numeric_cols].mean()
-    grouped["second"] = grouped["_second_bin"].astype(int)
-    grouped["time_start_sec"] = grouped["second"].astype(float)
-    grouped["time_end_sec"] = grouped["second"].astype(float) + 1.0
-    grouped["approx_time"] = grouped["time_start_sec"].apply(format_seconds_to_clock)
-    grouped["frame"] = grouped["time_start_sec"] * float(fps)
-
-    if "input" in df.columns:
-        grouped["input"] = df.groupby("_second_bin")["input"].first().reset_index(drop=True).to_numpy()
-
-    grouped = grouped.sort_values("second").reset_index(drop=True)
-    return grouped
-
-
-def prepare_frame_dataframe(df_raw, fps, sampling_mode):
-    """Return per-frame rows or aggregate the 1 FPS representative samples."""
-    if sampling_mode in {"all_frames", "custom_fps"}:
-        df_out = df_raw.copy()
-        df_out["time_sec"] = pd.to_numeric(df_out["frame"], errors="coerce") / float(fps)
-        df_out["approx_time"] = df_out["time_sec"].apply(format_seconds_to_clock)
-        return df_out
-
-    return aggregate_by_second(df_raw, fps)
-
-
-def apply_stimulus_metadata(df, stimuli):
-    """Label output rows whose time falls inside a configured stimulus window."""
-    if df is None or df.empty:
-        return df
-
-    df = df.copy()
-    if "time_sec" in df.columns:
-        row_times = pd.to_numeric(df["time_sec"], errors="coerce")
-    elif "time_start_sec" in df.columns:
-        row_times = pd.to_numeric(df["time_start_sec"], errors="coerce")
-    elif "frame" in df.columns:
-        row_times = pd.to_numeric(df["frame"], errors="coerce")
-    else:
-        row_times = pd.Series(float("nan"), index=df.index)
-
-    for index, stimulus in enumerate(stimuli, start=1):
-        start = float(stimulus["inicio"])
-        end = float(stimulus["fim"])
-        if end < start:
-            start, end = end, start
-        matches = row_times.ge(start) & row_times.lt(end)
-        labels = pd.Series("", index=df.index, dtype="object")
-        labels.loc[matches] = stimulus["nome"]
-        df[f"Stimulus_{index}"] = labels
-    return df
-
-
-def dataframe_to_parquet_bytes(df):
-    buffer = BytesIO()
-    df.to_parquet(buffer, engine="pyarrow", compression="snappy", index=False)
-    return buffer.getvalue()
 
 
 def visualization_time(df):
@@ -1787,93 +1701,68 @@ if st.button(t("start_extraction"), type="primary"):
         st.success(t("validated"))
         processed_results.clear()
         
-        with st.spinner(t("loading")):
-            detector = load_detector()
-        
-       
         progress_bar = st.progress(0, text=t("preparing"))
         total_files = len(uploaded_files)
         completed_rows = 0
         
         for idx, file in enumerate(uploaded_files):
             subject_id = video_subjects[file.name]
-            skip_frames = videos_info[file.name]["skip_frames"]
             sampling_mode = videos_info[file.name].get("sampling_mode", sampling_mode)
             expected_rows = videos_info[file.name]["effective_rows"]
-
             progress_text = t("processing_video", current=idx + 1, total=total_files, name=file.name, subject=subject_id)
             progress_bar.progress(idx / total_files, text=progress_text)
             video_started_at = time.perf_counter()
-            progress_callback = partial(
-                report_video_progress,
-                progress_bar=progress_bar,
-                completed_rows=completed_rows,
-                expected_rows=expected_rows,
-                total_rows=frames_to_analyze,
-                video_started_at=video_started_at,
-                current=idx + 1,
-                total=total_files,
-                name=file.name,
-            )
-
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as temp_video:
-                file.seek(0)
-                temp_video.write(file.read())
-                temp_video_path = temp_video.name
-
-            try:
-                with st.spinner(t("extracting")):
-                    with DETECT_VIDEO_PROGRESS_LOCK:
-                        original_tqdm = feat_detector.tqdm
-                        feat_detector.tqdm = lambda iterable: iter_with_progress(iterable, progress_callback)
-                        try:
-                            with torch.no_grad():
-                                video_prediction = detector.detect_video(
-                                    temp_video_path,
-                                    skip_frames=skip_frames,
-                                    batch_size=4,
-                                )
-                        finally:
-                            feat_detector.tqdm = original_tqdm
-                    df_raw = video_prediction.to_pandas() if hasattr(video_prediction, 'to_pandas') else video_prediction
-
-                    output_df = prepare_frame_dataframe(df_raw, videos_info[file.name]["fps"], sampling_mode)
-                    video_stimuli = stimuli_for_processing.get(file.name, [])
-                    if video_stimuli:
-                        output_df = apply_stimulus_metadata(output_df, video_stimuli)
-                    output_df["subject_id"] = subject_id
-                    output_df["input_file"] = file.name
-
-                    parquet_bytes = dataframe_to_parquet_bytes(output_df)
-                    processed_results[file.name] = {
+            video_stimuli = stimuli_for_processing.get(file.name, [])
+            file.seek(0)
+            with st.spinner(t("extracting")):
+                response = requests.post(
+                    f"{API_BASE_URL}/api/extractions",
+                    files={"file": (file.name, file.getvalue(), "application/octet-stream")},
+                    data={
                         "subject_id": subject_id,
-                        "dataframe": output_df,
-                        "parquet_bytes": parquet_bytes,
-                        "file_name": f"{subject_id}_{os.path.splitext(file.name)[0]}_pyfeat.parquet",
-                        "expected_rows": expected_rows,
-                        "stimuli": [dict(stimulus) for stimulus in video_stimuli],
-                    }
-                    elapsed_seconds = time.perf_counter() - video_started_at
-                    mode_history = runtime_history.setdefault(sampling_mode, {"rows": 0, "seconds": 0.0})
-                    mode_history["rows"] += expected_rows
-                    mode_history["seconds"] += elapsed_seconds
-                    completed_rows += expected_rows
+                        "sampling_mode": sampling_mode,
+                        "target_fps": custom_sampling_fps if sampling_mode == "custom_fps" else 1.0,
+                        "stimuli_json": json.dumps(video_stimuli),
+                    },
+                    timeout=120,
+                )
+                response.raise_for_status()
+                task_id = response.json()["task_id"]
+                status_url = f"{API_BASE_URL}/api/extractions/{task_id}"
+                while True:
+                    task_response = requests.get(status_url, timeout=30)
+                    task_response.raise_for_status()
+                    task = task_response.json()
+                    current_progress = float(task.get("progress", 0.0))
                     progress_bar.progress(
-                        min(completed_rows / max(frames_to_analyze, 1), 1.0),
-                        text=t(
-                            "processing_video_progress",
-                            current=idx + 1,
-                            total=total_files,
-                            name=file.name,
-                            percent=100,
-                            minutes=0,
-                            seconds=0,
-                        ),
+                        min((completed_rows + expected_rows * current_progress) / max(frames_to_analyze, 1), 0.999),
+                        text=f"{file.name}: {task.get('message', '')}",
                     )
-
-            finally:
-                if os.path.exists(temp_video_path):
-                    os.remove(temp_video_path)
+                    if task["status"] == "completed":
+                        break
+                    if task["status"] == "failed":
+                        raise RuntimeError(task.get("error") or "Extraction failed")
+                    time.sleep(0.5)
+                download_response = requests.get(
+                    f"{API_BASE_URL}/api/extractions/{task_id}/download", timeout=120
+                )
+                download_response.raise_for_status()
+                parquet_bytes = download_response.content
+                output_df = pd.read_parquet(BytesIO(parquet_bytes))
+                processed_results[file.name] = {
+                    "subject_id": subject_id,
+                    "dataframe": output_df,
+                    "parquet_bytes": parquet_bytes,
+                    "file_name": f"{subject_id}_{os.path.splitext(file.name)[0]}_pyfeat.parquet",
+                    "expected_rows": expected_rows,
+                    "stimuli": [dict(stimulus) for stimulus in video_stimuli],
+                }
+            elapsed_seconds = time.perf_counter() - video_started_at
+            mode_history = runtime_history.setdefault(sampling_mode, {"rows": 0, "seconds": 0.0})
+            mode_history["rows"] += expected_rows
+            mode_history["seconds"] += elapsed_seconds
+            completed_rows += expected_rows
+            progress_bar.progress(completed_rows / max(frames_to_analyze, 1), text=progress_text)
         
         
         progress_bar.progress(1.0, text=t("finished"))

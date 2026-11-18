@@ -8,6 +8,16 @@ FEDET (Facial Expression Data Extraction Tool) is a Streamlit research interface
 
 The current development environment uses Python 3.11.9. Other Python versions have not been validated (at least for now).
 
+### Run the local API
+
+The modular FastAPI backend can be started separately from the current Streamlit interface:
+
+```bash
+python -m uvicorn api.main:app --host 127.0.0.1 --port 8000
+```
+
+The API exposes `/health`, `/api/system`, `/api/content/guide/{pt|en}`, and video extraction endpoints under `/api/extractions`. Interactive API documentation is available at `/docs` while the server is running.
+
 ### Windows
 
 ```powershell
