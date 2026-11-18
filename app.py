@@ -619,9 +619,11 @@ TRANSLATIONS = {
         "estimated_time_disclaimer": "O tempo de loading é apenas uma estimativa e ficará mais preciso após a primeira utilização.",
         "upload_for_estimate": "Faça upload de vídeos para calcular o tempo estimado.",
         "metadata": "Metadados do Desenho Experimental",
-        "metadata_help": "Defina a quantidade de estímulos e os respetivos intervalos temporais (segundos) relativos ao vídeo. Exemplo: Estímulo 1 começa no segundo 4 e acaba no segundo 9.",
+        "metadata_help": "Defina os estímulos e, para cada vídeo, indique os respetivos intervalos temporais em segundos.",
         "metadata_toggle": "Adicionar marcadores de estímulo ao dataset",
-        "metadata_explanation": "O dataset terá uma coluna por estímulo; em intervalos sobrepostos, as colunas dos dois estímulos ficam preenchidas.",
+        "metadata_explanation": "Os nomes dos estímulos são comuns a todos os vídeos, mas cada vídeo pode ter intervalos diferentes. O dataset terá uma coluna por estímulo; intervalos sobrepostos ficam assinalados em ambas.",
+        "stimulus_video_windows": "Janelas dos estímulos — {name}",
+        "share_stimulus_windows": "Usar as mesmas janelas de estímulo para todos os vídeos",
         "stimulus_count": "Número de Estímulos na Sessão",
         "stimulus": "**Estímulo {number}**",
         "stimulus_selector": "Estímulo",
@@ -711,9 +713,11 @@ TRANSLATIONS = {
         "estimated_time_disclaimer": "Loading time is only an estimate and will become more accurate after the first use.",
         "upload_for_estimate": "Upload videos to calculate the estimated time.",
         "metadata": "Experimental Design Metadata",
-        "metadata_help": "Define the number of stimuli and their time intervals (seconds) relative to the video. Example: Stimulus 1 starts at second 4 and ends at second 9.",
+        "metadata_help": "Define the stimuli, then enter each stimulus's time interval in seconds for every video.",
         "metadata_toggle": "Add stimulus markers to the dataset",
-        "metadata_explanation": "The dataset will have one column per stimulus; overlapping intervals will be marked in both columns.",
+        "metadata_explanation": "Stimulus names are shared across videos, but each video can have different time intervals. The dataset will have one column per stimulus; overlapping intervals are marked in both.",
+        "stimulus_video_windows": "Stimulus windows — {name}",
+        "share_stimulus_windows": "Use the same stimulus windows for all videos",
         "stimulus_count": "Number of Stimuli in the Session",
         "stimulus": "**Stimulus {number}**",
         "stimulus_selector": "Stimulus",
@@ -1689,7 +1693,7 @@ with st.sidebar:
 
 st.markdown("---")
 
-estimulos_timestamps = []
+stimuli_by_video = {}
 st.subheader(t("metadata"))
 add_metadata = st.checkbox(t("metadata_toggle"), value=False)
 st.caption(t("metadata_explanation"))
@@ -1698,6 +1702,7 @@ if add_metadata:
     st.markdown(t("metadata_help"))
     num_estimulos = st.number_input(t("stimulus_count"), min_value=1, value=1, step=1)
 
+    stimulus_names = []
     for i in range(int(num_estimulos)):
         st.markdown(t("stimulus", number=i + 1))
         stimulus_name = st.text_input(
@@ -1706,21 +1711,62 @@ if add_metadata:
             placeholder=t("stimulus_name_placeholder"),
             key=f"stimulus_name_{i}",
         ).strip()
-        col_start, col_end = st.columns(2)
-        with col_start:
-            t_start = st.number_input(t("start"), min_value=0.0, value=float(30 * (i + 1)), step=1.0, key=f"start_{i}")
-        with col_end:
-            t_end = st.number_input(t("end"), min_value=0.0, value=float(90 * (i + 1)), step=1.0, key=f"end_{i}")
+        stimulus_names.append(stimulus_name or f"Stimulus_{i + 1}")
 
-        estimulos_timestamps.append({
-            "estimulo_id": f"Stimulus_{i + 1}",
-            "nome": stimulus_name or f"Stimulus_{i + 1}",
-            "inicio": t_start,
-            "fim": t_end,
-        })
+    share_stimulus_windows = st.checkbox(t("share_stimulus_windows"), value=False)
+    if share_stimulus_windows:
+        shared_stimuli = []
+        for i, stimulus_name in enumerate(stimulus_names):
+            st.markdown(f"**{stimulus_name}**")
+            col_start, col_end = st.columns(2)
+            with col_start:
+                t_start = st.number_input(
+                    t("start"), min_value=0.0, value=float(30 * (i + 1)), step=1.0,
+                    key=f"shared_stimulus_start_{i}",
+                )
+            with col_end:
+                t_end = st.number_input(
+                    t("end"), min_value=0.0, value=float(90 * (i + 1)), step=1.0,
+                    key=f"shared_stimulus_end_{i}",
+                )
+            shared_stimuli.append({
+                "estimulo_id": f"Stimulus_{i + 1}",
+                "nome": stimulus_name,
+                "inicio": t_start,
+                "fim": t_end,
+            })
+        stimuli_by_video = {
+            video.name: [dict(stimulus) for stimulus in shared_stimuli]
+            for video in uploaded_files or []
+        }
+    else:
+        for video in uploaded_files or []:
+            video_stimuli = []
+            subject_id = video_subjects.get(video.name, "").strip() or video.name
+            with st.expander(t("stimulus_video_windows", name=subject_id), expanded=True):
+                for i, stimulus_name in enumerate(stimulus_names):
+                    st.markdown(f"**{stimulus_name}**")
+                    col_start, col_end = st.columns(2)
+                    with col_start:
+                        t_start = st.number_input(
+                            t("start"), min_value=0.0, value=float(30 * (i + 1)), step=1.0,
+                            key=f"stimulus_start_{video.name}_{i}",
+                        )
+                    with col_end:
+                        t_end = st.number_input(
+                            t("end"), min_value=0.0, value=float(90 * (i + 1)), step=1.0,
+                            key=f"stimulus_end_{video.name}_{i}",
+                        )
+                    video_stimuli.append({
+                        "estimulo_id": f"Stimulus_{i + 1}",
+                        "nome": stimulus_name,
+                        "inicio": t_start,
+                        "fim": t_end,
+                    })
+            stimuli_by_video[video.name] = video_stimuli
 
-st.session_state["stimuli_timestamps"] = estimulos_timestamps
-stimuli_for_processing = st.session_state.get("stimuli_timestamps", [])
+st.session_state["stimuli_timestamps"] = stimuli_by_video
+stimuli_for_processing = st.session_state.get("stimuli_timestamps", {})
 st.markdown("---")
 
 
@@ -1792,8 +1838,9 @@ if st.button(t("start_extraction"), type="primary"):
                     df_raw = video_prediction.to_pandas() if hasattr(video_prediction, 'to_pandas') else video_prediction
 
                     output_df = prepare_frame_dataframe(df_raw, videos_info[file.name]["fps"], sampling_mode)
-                    if stimuli_for_processing:
-                        output_df = apply_stimulus_metadata(output_df, stimuli_for_processing)
+                    video_stimuli = stimuli_for_processing.get(file.name, [])
+                    if video_stimuli:
+                        output_df = apply_stimulus_metadata(output_df, video_stimuli)
                     output_df["subject_id"] = subject_id
                     output_df["input_file"] = file.name
 
@@ -1804,7 +1851,7 @@ if st.button(t("start_extraction"), type="primary"):
                         "parquet_bytes": parquet_bytes,
                         "file_name": f"{subject_id}_{os.path.splitext(file.name)[0]}_pyfeat.parquet",
                         "expected_rows": expected_rows,
-                        "stimuli": [dict(stimulus) for stimulus in stimuli_for_processing],
+                        "stimuli": [dict(stimulus) for stimulus in video_stimuli],
                     }
                     elapsed_seconds = time.perf_counter() - video_started_at
                     mode_history = runtime_history.setdefault(sampling_mode, {"rows": 0, "seconds": 0.0})
