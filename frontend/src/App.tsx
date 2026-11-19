@@ -1,12 +1,20 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import introGuide from './introGuide.html?raw'
 
 const API = 'http://127.0.0.1:8000'
 type Stimulus = { nome: string; inicio: number; fim: number }
-type VideoEntry = { file: File; subject: string; stimuli: Stimulus[]; fps?: number; frameCount?: number; duration?: number }
+type VideoEntry = { file: File; subject: string; stimuli: Stimulus[]; fps?: number; frameCount?: number; duration?: number; metadataError?: boolean }
 type NamedStimulus = { id: number; name: string }
-type PreviewData = { columns: string[]; rows: number; preview: Record<string, unknown>[]; face_score_median: number | null; face_score_missing: number | null; face_score_flagged: number | null; detected_frames: number; expected_rows: number; time_column: string | null; chart_points: Record<string, number | null>[]; chart_columns: { action_units: string[]; emotions: string[]; head_pose: string[] } }
+type PreviewData = { columns: string[]; rows: number; preview: Record<string, unknown>[]; face_score_median: number | null; face_score_missing: number | null; face_score_flagged: number | null; detected_frames: number; expected_rows: number; time_column: string | null; chart_points: Record<string, number | null>[]; chart_columns: { action_units: string[]; emotions: string[]; head_pose: string[] }; stimulus_statistics?: Record<string, Record<string, { before: number | null; during: number | null }>> }
 type ResultFile = { name: string; url: string; preview: PreviewData; stimuli: Stimulus[]; subject: string; taskId: string }
+
+function roundLikePython(value: number) {
+  const lower = Math.floor(value)
+  const fraction = value - lower
+  if (fraction < 0.5) return lower
+  if (fraction > 0.5) return lower + 1
+  return lower % 2 === 0 ? lower : lower + 1
+}
 
 export default function App() {
   const [page, setPage] = useState<'introduction' | 'workspace'>('introduction')
@@ -21,6 +29,9 @@ export default function App() {
   const [stimuli, setStimuli] = useState<NamedStimulus[]>([{ id: 1, name: 'Stimulus_1' }])
   const [sharedWindows, setSharedWindows] = useState<Stimulus[]>([{ nome: 'Stimulus_1', inicio: 30, fim: 90 }])
   const [runtimeHistory, setRuntimeHistory] = useState<Record<string, { rows: number; seconds: number }>>({})
+  const downloadUrls = useRef<string[]>([])
+
+  useEffect(() => () => downloadUrls.current.forEach(url => URL.revokeObjectURL(url)), [])
 
   function addFiles(files: FileList | null) {
     if (!files) return
@@ -28,7 +39,14 @@ export default function App() {
     setVideos(current => [...current, ...additions])
     additions.forEach(async video => {
       const form = new FormData(); form.append('file', video.file)
-      try { const response = await fetch(`${API}/api/extractions/metadata`, { method: 'POST', body: form }); if (response.ok) { const info = await response.json(); setVideos(current => current.map(item => item.file.name === video.file.name ? { ...item, fps: info.fps, frameCount: info.frame_count, duration: info.duration_seconds } : item)) } } catch { /* metadata remains optional when the API is unavailable */ }
+      try {
+        const response = await fetch(`${API}/api/extractions/metadata`, { method: 'POST', body: form })
+        if (!response.ok) throw new Error('Could not read video metadata')
+        const info = await response.json()
+        setVideos(current => current.map(item => item.file === video.file ? { ...item, fps: info.fps, frameCount: info.frame_count, duration: info.duration_seconds, metadataError: false } : item))
+      } catch {
+        setVideos(current => current.map(item => item.file === video.file ? { ...item, metadataError: true } : item))
+      }
     })
   }
   function updateVideo(index: number, update: Partial<VideoEntry>) {
@@ -52,7 +70,10 @@ export default function App() {
   }
   async function extract() {
     if (!videos.length || videos.some(video => !video.subject.trim())) { setMessage('Add at least one video and a subject ID for each.'); return }
-    setBusy(true); setDownloads([])
+    setBusy(true)
+    downloadUrls.current.forEach(url => URL.revokeObjectURL(url))
+    downloadUrls.current = []
+    setDownloads([])
     try {
       const results = []
       for (const video of videos) {
@@ -70,6 +91,7 @@ export default function App() {
         do {
           await new Promise(resolve => setTimeout(resolve, 700))
           const status = await fetch(`${API}/api/extractions/${task_id}`)
+          if (!status.ok) throw new Error(`Could not read extraction progress (${status.status}).`)
           task = await status.json()
           setMessage(`${video.file.name}: ${task.message} (${Math.round(task.progress * 100)}%)`)
           if (task.status === 'failed') throw new Error(task.error || 'Extraction failed')
@@ -79,21 +101,24 @@ export default function App() {
         const previewResponse = await fetch(`${API}/api/extractions/${task_id}/preview?limit=50&threshold=0.9`)
         if (!previewResponse.ok) throw new Error(`Could not load data preview (${previewResponse.status}): ${await previewResponse.text()}`)
         const preview: PreviewData = await previewResponse.json()
-        results.push({ name: `${video.subject}_${video.file.name.replace(/\.[^.]+$/, '')}_pyfeat.parquet`, url: URL.createObjectURL(await response.blob()), preview, stimuli: videoStimuli, subject: video.subject, taskId: task_id })
+        const url = URL.createObjectURL(await response.blob())
+        downloadUrls.current.push(url)
+        results.push({ name: `${video.subject}_${video.file.name.replace(/\.[^.]+$/, '')}_pyfeat.parquet`, url, preview, stimuli: videoStimuli, subject: video.subject, taskId: task_id })
+        setDownloads([...results])
         const elapsedSeconds = (performance.now() - videoStartedAt) / 1000
         setRuntimeHistory(current => {
           const previous = current[mode] ?? { rows: 0, seconds: 0 }
           return { ...current, [mode]: { rows: previous.rows + (preview.expected_rows || preview.rows), seconds: previous.seconds + elapsedSeconds } }
         })
       }
-      setDownloads(results); setMessage('All videos processed successfully.')
+      setMessage('All videos processed successfully.')
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Unexpected error.') }
     finally { setBusy(false) }
   }
 
   const estimatedRows = videos.reduce((sum, video) => {
     const frames = video.frameCount ?? 0, fps = video.fps ?? 30
-    const skip = mode === 'all_frames' ? 1 : Math.max(1, Math.round(fps / (mode === 'custom_fps' ? targetFps : 1)))
+    const skip = mode === 'all_frames' ? 1 : Math.max(1, roundLikePython(fps / (mode === 'custom_fps' ? targetFps : 1)))
     return sum + Math.ceil(frames / skip)
   }, 0)
   const modeHistory = runtimeHistory[mode]
@@ -107,21 +132,21 @@ export default function App() {
 
   return <>
     <header className="topbar"><div className="brand">FEDET</div><nav><button className={page === 'introduction' ? 'selected' : ''} onClick={() => setPage('introduction')}>Introduction</button><button className={page === 'workspace' ? 'selected' : ''} onClick={() => setPage('workspace')}>Analysis Tool</button></nav></header>
-    {page === 'introduction' ? <IntroPage onStart={() => setPage('workspace')} /> : <div className="workspace-layout"><aside className="sampling-sidebar"><h2>Extraction controls</h2><label>Frame sampling<select value={mode} onChange={event=>setMode(event.target.value)}><option value="all_frames">Every frame (Maximum resolution)</option><option value="fast_fps">1 FPS (representative frame)</option><option value="custom_fps">Custom sampling</option></select></label>{mode==='custom_fps'&&<label>Target sampling frequency (FPS)<input type="number" min="0.1" step="0.1" value={targetFps} onChange={event=>setTargetFps(Number(event.target.value))}/></label>}<hr/><h3>Processing time estimate</h3>{videos.length?<><div className="sidebar-metric"><span>Frames to analyze</span><strong>{estimatedRows.toLocaleString()}</strong></div><div className="sidebar-metric"><span>Output rows</span><strong>{estimatedRows.toLocaleString()}</strong></div><div className="sidebar-metric"><span>Estimated time</span><strong>{Math.floor(estimatedSeconds/60)}m {Math.round(estimatedSeconds%60)}s</strong></div>{measuredRows===0&&<small>This is an initial estimate; it improves after extraction.</small>}</>:<p className="muted">Upload videos to calculate the estimate.</p>}</aside><main className="shell workspace-main">
-    <section className="hero"><p className="eyebrow">LOCAL RESEARCH WORKSPACE</p><h1>Turn video into<br/><em>facial expression data.</em></h1><p>Upload recordings, choose your sampling settings, and extract Py-Feat predictions.</p></section>
-    <section className="panel"><h2>1. Videos and subjects</h2><label className="drop">Choose video files<input type="file" accept=".mp4,.avi,.mov" multiple onChange={event => addFiles(event.target.files)}/><small>MP4, AVI, MOV · Videos are processed locally</small></label>
-      {videos.map((video, index) => <div className="video" key={`${video.file.name}-${index}`}><div><strong>{video.file.name}</strong><small className="video-meta">{video.fps ? `${video.frameCount?.toLocaleString()} frames · ${video.fps.toFixed(2)} FPS · ${Math.floor((video.duration ?? 0)/60)}:${String(Math.floor((video.duration ?? 0)%60)).padStart(2,'0')}` : 'Reading video metadata…'}</small></div><label>Subject ID<input value={video.subject} onChange={event => updateVideo(index, { subject: event.target.value })} placeholder="e.g. Subject_01"/></label></div>)}
+    {page === 'introduction' ? <IntroPage onStart={() => setPage('workspace')} /> : <div className="workspace-layout"><aside className="sampling-sidebar"><h2>Extraction controls</h2><label>Frame sampling<select value={mode} onChange={event=>setMode(event.target.value)}><option value="all_frames">Every frame</option><option value="fast_fps">1 FPS (fast mode)</option><option value="custom_fps">Custom sampling</option></select></label>{mode==='fast_fps'&&<small>Fast mode analyzes one representative frame per second.</small>}{mode==='custom_fps'&&<><label>Target sampling frequency (FPS)<input type="number" min="0.1" step="0.1" value={targetFps} onChange={event=>setTargetFps(Number(event.target.value))}/></label><small>The selected frequency is approximate and depends on the source video's frame rate.</small></>}<hr/><h3>Processing time estimate</h3>{videos.length?<><div className="sidebar-metric"><span>Frames to analyze</span><strong>{estimatedRows.toLocaleString()}</strong></div><div className="sidebar-metric"><span>Output rows</span><strong>{estimatedRows.toLocaleString()}</strong></div><div className="sidebar-metric"><span>Estimated time</span><strong>{Math.floor(estimatedSeconds/60)}m {Math.round(estimatedSeconds%60)}s</strong></div>{measuredRows===0&&<small>This is an initial estimate; it improves after extraction.</small>}</>:<p className="muted">Upload videos to calculate the estimate.</p>}</aside><main className="shell workspace-main">
+    <section className="workspace-heading"><h1>Data Upload and Subject Identification</h1></section>
+    <section className="panel"><h2>1. Videos and subjects</h2><label className="drop">Choose video files<input type="file" accept=".mp4,.avi,.mov" multiple onChange={event => { addFiles(event.target.files); event.currentTarget.value = '' }}/><small>MP4, AVI, MOV · Videos are processed locally</small></label>
+      {videos.map((video, index) => <div className="video" key={`${video.file.name}-${index}`}><div><strong>{video.file.name}</strong><small className="video-meta">{video.fps ? `${video.frameCount?.toLocaleString()} frames · ${video.fps.toFixed(2)} FPS · ${Math.floor((video.duration ?? 0)/60)}:${String(Math.floor((video.duration ?? 0)%60)).padStart(2,'0')}` : video.metadataError ? 'Video metadata unavailable; estimate may be inaccurate.' : 'Reading video metadata…'}</small></div><label>Subject ID<input value={video.subject} onChange={event => updateVideo(index, { subject: event.target.value })} placeholder="e.g. Subject_01"/></label><button className="remove-video" type="button" disabled={busy} onClick={() => setVideos(current => current.filter((_, i) => i !== index))}>Remove</button></div>)}
     </section>
     <section className="panel"><h2>2. Experimental design metadata</h2>
-      <label className="inline"><input type="checkbox" checked={addMetadata} onChange={event => setAddMetadata(event.target.checked)}/> Add stimulus markers to the dataset</label>
-      {addMetadata && <>
+      <label className="inline"><input type="checkbox" checked={addMetadata} onChange={event => setAddMetadata(event.target.checked)}/> Add stimulus markers to the dataset</label><p className="muted metadata-help">Stimulus names are shared across videos, but each video can have different time intervals. Overlapping intervals are marked in both columns.</p>
+      {addMetadata && <><p className="muted">Define the stimuli, then enter each stimulus time window in seconds.</p>
         <label>Number of stimuli<input type="number" min="1" max="20" value={stimuli.length} onChange={event => setStimulusCount(Math.max(1, Number(event.target.value) || 1))}/></label>
         {stimuli.map((stimulus, i) => <label key={stimulus.id}>{`Stimulus ${i + 1} name`}<input value={stimulus.name} onChange={event => renameStimulus(i, event.target.value)}/></label>)}
         <label className="inline"><input type="checkbox" checked={shared} onChange={event => setShared(event.target.checked)}/> Use the same stimulus windows for every video</label>
         {shared ? sharedWindows.map((window, i) => <fieldset key={i}><legend>{stimuli[i].name}</legend><div className="window-fields"><label>Start (seconds)<input type="number" min="0" value={window.inicio} onChange={event => updateWindow(0, i, 'inicio', Number(event.target.value), true)}/></label><label>End (seconds)<input type="number" min="0" value={window.fim} onChange={event => updateWindow(0, i, 'fim', Number(event.target.value), true)}/></label></div></fieldset>) : videos.map((video, videoIndex) => <details key={video.file.name}><summary>Stimulus windows — {video.subject || video.file.name}</summary>{video.stimuli.map((window, i) => <fieldset key={i}><legend>{stimuli[i].name}</legend><div className="window-fields"><label>Start (seconds)<input type="number" min="0" value={window.inicio} onChange={event => updateWindow(videoIndex, i, 'inicio', Number(event.target.value), false)}/></label><label>End (seconds)<input type="number" min="0" value={window.fim} onChange={event => updateWindow(videoIndex, i, 'fim', Number(event.target.value), false)}/></label></div></fieldset>)}</details>)}
       </>}
     </section>
-    <button className="primary" disabled={busy} onClick={extract}>{busy ? 'Processing…' : 'Extract data'}</button><p className="status" role="status">{message}</p>
+    <section className="panel processing-panel"><h2>3. Processing</h2><p className="muted">Upload a video and select Extract data to generate the output and its interactive visualizations.</p><button className="primary extract-button" disabled={busy} onClick={extract}>{busy ? 'Processing…' : 'Extract data'}</button><p className="status" role="status">{message}</p></section>
     {downloads.length > 0 && <StimulusAnalysis results={downloads} />}
     {downloads.length > 0 && <AdvancedStimulusAnalysis results={downloads} />}
     {downloads.map(result => <ResultCard key={result.name} result={result} />)}
@@ -154,7 +179,8 @@ function LineChart({points,metric,timeColumn,scatter=false,threshold,stimuli=[]}
   const [hovered,setHovered]=useState<number|null>(null)
   const values=points.map(p=>p[metric]).filter((v):v is number=>typeof v==='number'&&Number.isFinite(v)); if(values.length<2)return <p className="muted">Not enough values to plot.</p>
   const min=Math.min(...values,...(threshold===undefined?[]:[threshold])),max=Math.max(...values,...(threshold===undefined?[]:[threshold])),span=max-min||1
-  const times=points.map(p=>typeof p[timeColumn]==='number'?p[timeColumn] as number:null), validTimes=times.filter((v):v is number=>v!==null),xMin=Math.min(...validTimes),xMax=Math.max(...validTimes),xSpan=xMax-xMin||1
+  const times=points.map(p=>typeof p[timeColumn]==='number'?p[timeColumn] as number:null), validTimes=times.filter((v):v is number=>v!==null); if(!validTimes.length)return <p className="muted">Time values are not available for this chart.</p>
+  const xMin=Math.min(...validTimes),xMax=Math.max(...validTimes),xSpan=xMax-xMin||1
   const xy=points.map((p,i)=>{const v=p[metric],t=times[i];return typeof v==='number'&&t!==null?{i,x:((t-xMin)/xSpan)*1000,y:180-((v-min)/span)*160,v,t}:null})
   const runs:{i:number,x:number,y:number,v:number,t:number}[][]=[];let run:{i:number,x:number,y:number,v:number,t:number}[]=[];xy.forEach(point=>{if(point){run.push(point)}else if(run.length){runs.push(run);run=[]}});if(run.length)runs.push(run)
   const selected=xy.find(p=>p?.i===hovered)
@@ -183,16 +209,17 @@ function StimulusAnalysis({ results }: { results: ResultFile[] }) {
   const comparisons = results.flatMap(result => {
     const stimulus = (result.stimuli ?? []).find(item => item.nome === selectedStimulus)
     if (!stimulus) return []
-    const start = Math.min(stimulus.inicio, stimulus.fim), end = Math.max(stimulus.inicio, stimulus.fim)
-    const timeColumn = result.preview.time_column ?? 'frame'
-    const samples = (result.preview.chart_points ?? []).flatMap(point => {
-      const time = point[timeColumn], value = point[selectedMetric]
-      return typeof time === 'number' && typeof value === 'number' ? [{ time, value }] : []
-    })
+    const summary = result.preview.stimulus_statistics?.[selectedStimulus]?.[selectedMetric]
+    if (summary) {
+      if (summary.before == null || summary.during == null) return []
+      return [{ label: `${result.subject} · ${result.name}`, before: summary.before, during: summary.during }]
+    }
+    const start = Math.min(stimulus.inicio, stimulus.fim), end = Math.max(stimulus.inicio, stimulus.fim), timeColumn = result.preview.time_column ?? 'frame'
+    const samples = (result.preview.chart_points ?? []).flatMap(point => { const time = point[timeColumn], value = point[selectedMetric]; return typeof time === 'number' && typeof value === 'number' ? [{ time, value }] : [] })
     const before = samples.filter(point => point.time >= start - 5 && point.time < start).map(point => point.value)
     const during = samples.filter(point => point.time >= start && point.time < end).map(point => point.value)
     if (!before.length || !during.length) return []
-    return [{ label: `${result.subject} ? ${result.name}`, before: before.reduce((a,b)=>a+b,0)/before.length, during: during.reduce((a,b)=>a+b,0)/during.length }]
+    return [{ label: `${result.subject} · ${result.name}`, before: before.reduce((a,b)=>a+b,0)/before.length, during: during.reduce((a,b)=>a+b,0)/during.length }]
   })
   const all = comparisons.flatMap(item => [item.before,item.during])
   const min = all.length ? Math.min(...all) : 0, max = all.length ? Math.max(...all) : 1, span = max-min || 1

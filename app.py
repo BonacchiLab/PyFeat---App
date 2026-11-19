@@ -16,7 +16,6 @@ from core.processing import calculate_skip_frames
 from core.analytics import (
     compare_stimulus_windows,
     event_aligned_signals,
-    stimulus_similarity_matrix,
 )
 
 BASELINE_SECONDS_PER_FRAME = 4.0
@@ -654,7 +653,6 @@ TRANSLATIONS = {
         "chart_heatmap_help": "Cada linha representa uma AU e cada coluna um frame amostrado. A cor mostra o valor estimado pelo modelo; células sem cor são dados em falta, não zeros. As faixas sombreadas assinalam estímulos para ajudar a localizar mudanças no tempo.",
         "chart_before_during_help": "Cada par de pontos é uma gravação: a média nos 5 segundos antes do início e a média durante o estímulo. A distância vertical mostra a diferença observada. Cada gravação conta uma vez; a comparação é descritiva e não prova causalidade.",
         "chart_event_aligned_help": "O eixo horizontal mostra segundos desde o início do estímulo: 0 é o início e a faixa sombreada é a sua duração. O eixo vertical mostra o sinal escolhido. Cada linha é uma gravação; lacunas indicam dados em falta. Compare formas e diferenças entre participantes.",
-        "chart_similarity_help": "Cada célula compara duas gravações pela correlação de Pearson (r) da forma temporal, dividida em 20 fases relativas ao estímulo. r perto de 1 indica trajetórias semelhantes; perto de -1, trajetórias inversas. Só contam fases presentes em ambas; não mede emoção nem causalidade.",
         "visualizations_after_processing": "Carregue um vídeo e selecione **Extrair dados** para gerar o output e as respetivas visualizações interativas.",
         "quality_tab": "Qualidade dos dados",
         "signals_tab": "Sinais ao longo do tempo",
@@ -676,9 +674,7 @@ TRANSLATIONS = {
         "no_stimulus_comparison": "Adicione intervalos de estímulo e processe pelo menos um vídeo para comparar períodos.",
         "advanced_stimulus_analysis": "Análise avançada entre gravações",
         "event_aligned_tab": "Trajetórias alinhadas ao estímulo",
-        "similarity_tab": "Similaridade das gravações",
         "no_event_aligned_data": "Não há dados suficientes em torno deste estímulo para traçar as gravações.",
-        "similarity_min_recordings": "São necessárias pelo menos duas gravações com dados suficientes neste intervalo.",
         "finished": "Processamento concluído.",
     },
     "en": {
@@ -748,7 +744,6 @@ TRANSLATIONS = {
         "chart_heatmap_help": "Each row is an AU and each column is a sampled frame. Color shows the model estimate; blank cells mean missing data, not zero. Shaded bands mark stimuli and help locate changes over time.",
         "chart_before_during_help": "Each pair of points is one recording: the mean for the 5 seconds before onset and the mean during the stimulus. Vertical distance shows the observed difference. Each recording counts once; this is descriptive, not causal evidence.",
         "chart_event_aligned_help": "The horizontal axis shows seconds from stimulus onset: 0 is onset and the shaded band is its duration. The vertical axis shows the selected signal. Each line is one recording; gaps indicate missing data. Compare shapes and differences across participants.",
-        "chart_similarity_help": "Each cell compares two recordings using Pearson r for the temporal shape across 20 stimulus-relative phases. Values near 1 indicate similar trajectories; near -1, inverse trajectories. Only phases observed in both recordings count; this is not emotion or causality.",
         "visualizations_after_processing": "Upload a video and select **Extract data** to generate the output and its interactive visualizations.",
         "quality_tab": "Data quality",
         "signals_tab": "Signals over time",
@@ -770,9 +765,7 @@ TRANSLATIONS = {
         "no_stimulus_comparison": "Add stimulus windows and process at least one video to compare periods.",
         "advanced_stimulus_analysis": "Advanced across-recording analysis",
         "event_aligned_tab": "Event-aligned trajectories",
-        "similarity_tab": "Recording similarity",
         "no_event_aligned_data": "There is not enough data around this stimulus to plot the recordings.",
-        "similarity_min_recordings": "At least two recordings with sufficient data in this interval are required.",
         "finished": "Processing complete.",
     },
 }
@@ -1829,10 +1822,7 @@ if results_with_stimuli:
             st.info(t("no_stimulus_comparison"))
 
     with st.expander(t("advanced_stimulus_analysis"), expanded=True):
-        event_tab, similarity_tab = st.tabs([
-            t("event_aligned_tab"),
-            t("similarity_tab"),
-        ])
+        event_tab = st.container()
         all_result_columns = list(set.union(*(
             set(result["dataframe"].columns)
             for result in results_with_stimuli.values()
@@ -1918,66 +1908,3 @@ if results_with_stimuli:
                         key="event_aligned_chart",
                     )
                     show_chart_explanation("event_aligned", "chart_event_aligned_help")
-
-            with similarity_tab:
-                similarity_category_label = st.radio(
-                    t("signal_category"),
-                    options=[label for label, _ in available_categories],
-                    horizontal=True,
-                    key="trajectory_similarity_category",
-                )
-                similarity_category = dict(available_categories)[similarity_category_label]
-                similarity_metrics = visualization_columns(result_schema, similarity_category)
-                similarity_control_col, similarity_metric_col = st.columns(2)
-                with similarity_control_col:
-                    similarity_stimulus = st.selectbox(
-                        t("stimulus_selector"),
-                        options=stimulus_names,
-                        key="trajectory_similarity_stimulus",
-                        accept_new_options=False,
-                    )
-                with similarity_metric_col:
-                    similarity_metric = st.selectbox(
-                        t("stimulus_metric"),
-                        options=similarity_metrics,
-                        key="trajectory_similarity_metric",
-                        accept_new_options=False,
-                    )
-                similarity_data, shared_bins = stimulus_similarity_matrix(
-                    results_with_stimuli,
-                    similarity_metric,
-                    similarity_stimulus,
-                )
-                if len(similarity_data) < 2:
-                    st.info(t("similarity_min_recordings"))
-                else:
-                    similarity_fig = go.Figure(
-                        data=go.Heatmap(
-                            z=similarity_data.to_numpy(),
-                            x=similarity_data.columns,
-                            y=similarity_data.index,
-                            customdata=shared_bins.to_numpy(),
-                            colorscale="RdBu",
-                            reversescale=True,
-                            zmin=-1,
-                            zmax=1,
-                            colorbar={"title": "Pearson r"},
-                            hovertemplate=(
-                                "Recording A: %{y}<br>Recording B: %{x}"
-                                "<br>Pearson r: %{z:.3f}<br>Shared phases: %{customdata}"
-                                "<extra></extra>"
-                            ),
-                        )
-                    )
-                    similarity_fig.update_layout(
-                        title=f"{similarity_metric} trajectory similarity during {similarity_stimulus}",
-                        xaxis_title="Recording",
-                        yaxis_title="Recording",
-                    )
-                    style_visualization(similarity_fig, height=500)
-                    st.plotly_chart(
-                        similarity_fig,
-                        width="stretch",
-                        key="trajectory_similarity_chart",
-                    )
-                    show_chart_explanation("trajectory_similarity", "chart_similarity_help")

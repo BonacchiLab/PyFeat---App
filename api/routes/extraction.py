@@ -106,7 +106,7 @@ def _process_video(task_id, filename, video_bytes, subject_id, sampling_mode, ta
         output_path = RESULTS_DIR / f"{task_id}.parquet"
         output_path.write_bytes(dataframe_to_parquet_bytes(output_df))
         detected_frames = int(pd.to_numeric(output_df["frame"], errors="coerce").nunique()) if "frame" in output_df.columns else len(output_df)
-        task_progress.update(task_id, status="completed", progress=1.0, message="Extraction completed", result_path=str(output_path), rows=len(output_df), expected_rows=expected_rows, detected_frames=detected_frames)
+        task_progress.update(task_id, status="completed", progress=1.0, message="Extraction completed", result_path=str(output_path), rows=len(output_df), expected_rows=expected_rows, detected_frames=detected_frames, stimuli=stimuli)
     except Exception as exc:
         task_progress.update(task_id, status="failed", message="Extraction failed", error=f"{type(exc).__name__}: {exc}")
     finally:
@@ -120,6 +120,7 @@ def get_task(task_id: str):
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
     task.pop("result_path", None)
+    task.pop("stimuli", None)
     return task
 
 
@@ -175,6 +176,24 @@ def preview_result(task_id: str, limit: int = 50, threshold: float = 0.9):
     emotion_names = ["neutral", "happiness", "sadness", "anger", "fear", "disgust", "surprise"]
     emotion_columns = [column for column in emotion_names if column in numeric_columns]
     pose_columns = [column for column in ("Pitch", "Roll", "Yaw") if column in numeric_columns]
+    stimulus_statistics = {}
+    if time_column:
+        times = pd.to_numeric(df[time_column], errors="coerce")
+        task_stimuli = task.get("stimuli", [])
+        for stimulus in task_stimuli:
+            start, end = sorted((float(stimulus["inicio"]), float(stimulus["fim"])))
+            before_rows = times.ge(start - 5) & times.lt(start)
+            during_rows = times.ge(start) & times.lt(end)
+            metrics = {}
+            for column in [*au_columns, *emotion_columns, *pose_columns]:
+                values = pd.to_numeric(df[column], errors="coerce")
+                before = values.loc[before_rows].mean()
+                during = values.loc[during_rows].mean()
+                metrics[column] = {
+                    "before": float(before) if pd.notna(before) else None,
+                    "during": float(during) if pd.notna(during) else None,
+                }
+            stimulus_statistics[stimulus["nome"]] = metrics
     return {
         "columns": list(df.columns),
         "rows": len(df),
@@ -187,4 +206,5 @@ def preview_result(task_id: str, limit: int = 50, threshold: float = 0.9):
         "time_column": time_column,
         "chart_points": chart_points,
         "chart_columns": {"action_units": au_columns, "emotions": emotion_columns, "head_pose": pose_columns},
+        "stimulus_statistics": stimulus_statistics,
     }
