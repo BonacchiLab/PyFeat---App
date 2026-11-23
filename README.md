@@ -1,6 +1,6 @@
 # FEDET
 
-FEDET (Facial Expression Data Extraction Tool) is a local research application for extracting and exploring facial-expression measures from videos with [Py-Feat](https://py-feat.org/). The current frontend is React, TypeScript, and Vite; FastAPI runs video processing in the Python backend. The original Streamlit app remains available as a reference while migration and parity work continue.
+FEDET (Facial Expression Data Extraction Tool) is a local research application for extracting and exploring facial-expression measures from videos with [Py-Feat](https://py-feat.org/). The frontend is React, TypeScript, and Vite; FastAPI runs video processing in the local Python backend.
 
 ## Run locally
 
@@ -27,8 +27,6 @@ npm run dev
 
 Open the local address printed by Vite (usually `http://localhost:5173`). The FastAPI documentation is at `http://127.0.0.1:8000/docs`.
 
-The legacy Streamlit interface can still be run from the project root with `python -m streamlit run app.py`.
-
 ## Current workflow
 
 Upload MP4, AVI, or MOV videos, assign subject IDs, choose frame sampling, and optionally configure stimulus names and windows shared across or specific to each video. The frontend submits one extraction task per video to the API, shows progress, previews the first 50 output rows, displays quality summaries and interactive plots, and downloads one Parquet file per video.
@@ -45,12 +43,11 @@ From the `frontend/` directory, run:
 npm run build
 ```
 
-For development parity checks, run the React and Streamlit interfaces against the same videos, sampling mode, subject IDs, and stimulus windows, then compare the downloaded Parquet outputs and visual summaries. Restart the API after backend code changes so the running server loads the current implementation.
+During development, restart the API after backend code changes so the running server loads the current implementation. Previous parity checks against Streamlit are summarized in `development.md`.
 
 ## Project layout
 
 - `frontend/`: React, TypeScript, and Vite interface.
 - `api/`: FastAPI endpoints for extraction tasks, progress, metadata, previews, and downloads.
 - `core/`: Py-Feat detector, processing, analytics, and task progress modules.
-- `app.py`: legacy Streamlit interface retained during migration.
 - `requirements.txt` and `frontend/package.json`: Python and frontend dependencies.
