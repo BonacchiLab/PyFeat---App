@@ -1,66 +1,49 @@
 # Development notes
 
-This document records the intended direction of FEDET and helps understand what is implemented, what should come next, and which decisions are still open. 
+## Goals
 
-## Primary goal
-
-Make facial-expression data work accessible to researchers and students who do not have the programming experience, confidence, or time to write their own analysis code. The interface should provide a simple way to extract facial-expression data from videos, preprocess it, and explore useful visualizations.
-
-The primary goal is met when a researcher or student can use the interface to extract facial-expression data from videos, preprocess it, and obtain useful visualizations through a straightforward workflow.
-
-## Secondary goals
-
-- Keep the user interface simple and easy to learn.
-- Support a broad range of research and experimental designs.
-- Offer flexible analysis settings, especially for frame sampling and data cleaning, rather than assuming a single experimental workflow.
-
-The accessibility part means that the interface should be kept usable without programming experience or knowledge.
-
+FEDET should let researchers and students extract, preprocess, preview, clean, and visualize facial-expression data from videos without programming. It should support varied research designs and remain straightforward to use.
 
 ## Current implementation
 
-- Upload multiple MP4, AVI, or MOV videos and assign a subject ID to each.
-- Select every-frame, approximately 1 FPS, or custom-FPS sampling.
-- Optionally annotate stimulus names and time intervals relative to each video.
-- Run Py-Feat extraction and preprocess per-frame results or aggregate sampled results by second.
-- Inspect detection-quality summaries, Action Unit, emotion, and head-pose signals, an Action Unit heatmap, and stimulus-based comparisons across recordings.
-- Download a separate Parquet file for each processed video.
+- A local FastAPI backend accepts video extraction tasks, runs Py-Feat, reports progress, and serves Parquet downloads, previews, video metadata, and quality summaries.
+- Core detector, processing, analytics, and task-progress code is separated into `core/` modules. The processing behavior and output columns were carried over from the original Streamlit workflow.
+- The React/TypeScript/Vite frontend supports multiple videos, subject IDs, every-frame/approximately 1 FPS/custom-FPS sampling, and shared or per-video stimulus windows.
+- After existing frame preparation and optional per-second aggregation, `core.processing.add_dominant_emotion` adds a `dominant_emotion` label to each output row. Original Py-Feat emotion scores and other columns remain unchanged; the new label is included in Parquet exports.
+- The extraction preview exposes an `emotion_timeline` containing each output row's frame, timestamp, dominant label, dominant score, and available emotion scores. The React frontend renders one colored, selectable block per row with a legend and score details.
+- For `all_frames` extractions, `GET /api/extractions/{task_id}/frames` serves paginated frame details (maximum 1,000 frames per request), grouping multiple face detections under their source frame and including face boxes, emotion scores, AUs, timestamps, and paired `x_N`/`y_N` landmarks when present. Py-Feat 0.6.2 resizes video frames to a 700-pixel longest edge before detection, so the endpoint reports that analysis coordinate size and the UI scales landmarks/boxes back to source-video pixels for display. The local React video inspector loads 500 frames at a time, seeks when a frame block is selected, tracks playback time, and can overlay face boxes, landmarks, and emotion/AU summaries. Other sampling modes display a clear limitation notice; the endpoint rejects frame-synchronized requests for them.
+- The frontend displays extraction progress, a 50-row preview, FaceScore quality information, signal plots, an AU heatmap, before/during comparisons, and event-aligned trajectories.
+- The Streamlit interface has been removed after React/API verification. Recording similarity was intentionally removed.
+- The React sidebar estimates sampled rows and processing time using the selected sampling mode, video metadata, and observed processing history where available; it uses a four-second-per-sampled-frame fallback without history.
 
-The interface and processing logic currently live in `app.py`. The detector uses Py-Feat's default model configuration and chooses CUDA when available, otherwise CPU. 
+## Verification status
 
-## Next steps
+- Ran the two short test videos through the React/API flow in approximately 1 FPS, all-frames, and custom-2-FPS modes, with a shared stimulus window from 1 to 2 seconds.
+- Before removing Streamlit, compared React and Streamlit approximately-1-FPS Parquet results: row counts, ordered columns, data types, and numeric values matched. The only differing value was the temporary source-video path recorded in `input`, generated separately for each upload.
+- Before removing Streamlit, checked stimulus before/during statistics from all six mode/video combinations against its analytics calculation; the values matched.
+- Ran `npm run build` successfully after the frontend changes and `git diff --check` without whitespace errors.
+- During parity checks, run both interfaces against the same current API process and use identical video settings. Restart FastAPI after backend changes; an already-running server can continue serving older code.
 
-The order below **does not reflects the current priority order**. 
+## Dominant emotion selection
 
-### 1. Investigate Py-Feat version support
+- `add_dominant_emotion` in `core/processing.py` looks for the numeric columns among `anger`, `disgust`, `fear`, `happiness`, `sadness`, `surprise`, and `neutral`.
+- For each output row, it selects every emotion column tied for the largest available numeric score. A single winner is stored by name, such as `happiness`; a tie is stored as a ` + `-separated label, such as `anger + fear`. This is a direct maximum comparison over the existing Py-Feat values; it does not normalize, threshold, smooth, or otherwise modify the scores.
+- If all available scores in a row are missing, `dominant_emotion` is null. For ties, the stored names follow the configured column order: anger, disgust, fear, happiness, sadness, surprise, neutral.
+- Classification runs after the existing sampling/aggregation step. Thus, all-frames and custom-FPS outputs are labeled per sampled frame; the approximately 1 FPS mode labels each existing per-second aggregate row based on its already-aggregated emotion scores. The aggregation calculation itself is unchanged.
+- The API includes this field in `emotion_timeline`; the UI's frame blocks represent output rows/samples, not necessarily every source-video frame in modes that sample or aggregate.
 
-Determine whether and how the application should support different Py-Feat versions. Compare relevant model availability, output columns, processing behavior, installation constraints, and compatibility with the current Python and dependency setup.
+## Remaining work - MOST IMPORTANT
 
-**Still need to decide this, investigate the pros and cons**
+- Continue reviewing visual and functional parity for less common workflows, error states, and differing video characteristics.
+- Review the API/React boundary and error handling, and provide a simple way to start the local frontend and backend together.
 
-### 2. Explore predominant-emotion epochs
+## Future directions
 
-Investigate ways to categorize each frame by its predominant emotion, group frame-level categories into temporal “epochs,” and visualize those epochs clearly.
+- Investigate Py-Feat version support, including model availability, output columns, behavior, and installation compatibility.
+- Decide whether emotion categorization should use a baseline/confidence threshold before assigning a category (for example, only label an emotion when its score meets a chosen criterion) or always retain the emotion with the highest score. Current behavior always uses the maximum available score and preserves exact ties as multiple labels; no baseline is applied.
+- Explore predominant-emotion epochs, including smoothing and minimum duration. Frame/sample-level dominant-emotion labels, including all tied maximum emotions, are already implemented; all-missing rows remain unlabeled.
+- Add CSV and XML export alongside Parquet.
+- Add dataset reduction controls for rows and columns, with undo and permanent access to the original raw dataset.
+- Consider integrating Tomás's eye-tracking pipeline after the main application is structured and stable.
 
-Before implementation, decide how to handle ties, low-confidence or missing predictions, temporal smoothing, and the minimum duration of an epoch. The exact categorization and visualization approach is still up to decision.
-
-### 3. Add more output formats
-
-Allow users to export processed datasets in additional formats, including CSV and XML, alongside the existing Parquet export.
-
-
-### 4. Add dataset reduction options
-
-Let users reduce the output dataset by removing columns and/or rows that are not relevant to their analysis.
-
-**Important:** Even if the user decides to reduce the dataset, there should always be both an "undo" function that undoes the last action of the user in the data reducing set of actions. Also, the original raw dataset should always remain available for download.
-
-### 5. Improve the interface
-
-Continue refining the visual design and workflow so the interface is attractive, clear, and easy to use for people with little or no programming experience. Keep the goal of flexible analysis settings in view as controls and workflows evolve.
-
-### 6. Consider eye-tracking
-
-Treat eye-tracking as a possible future direction. Later, after the main objective of the interface is concluded and well structured, work alongside Tomás to merge his eye-tracking pipeline to this interface.
-
-
+Feature priorities are set by the project owner as work proceeds.
