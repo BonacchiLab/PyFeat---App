@@ -189,6 +189,7 @@ function VideoFrameInspector({ result }: { result: ResultFile }) {
   const [videoUrl, setVideoUrl] = useState('')
   const [frames, setFrames] = useState<InspectedFrame[]>([])
   const [total, setTotal] = useState(0)
+  const [coordinateSize, setCoordinateSize] = useState<{ width: number; height: number } | null>(null)
   const [offset, setOffset] = useState(0)
   const [currentFrame, setCurrentFrame] = useState(0)
   const [emotionFilter, setEmotionFilter] = useState('all')
@@ -208,7 +209,7 @@ function VideoFrameInspector({ result }: { result: ResultFile }) {
         if (!response.ok) throw new Error(`Could not load frame data (${response.status}).`)
         return response.json()
       })
-      .then(data => { if (!cancelled) { setFrames(data.frames); setTotal(data.total); setError('') } })
+      .then(data => { if (!cancelled) { setFrames(data.frames); setTotal(data.total); setCoordinateSize(data.coordinate_width && data.coordinate_height ? { width: data.coordinate_width, height: data.coordinate_height } : null); setError('') } })
       .catch(reason => { if (!cancelled) setError(reason instanceof Error ? reason.message : 'Could not load frame data.') })
     return () => { cancelled = true }
   }, [result.taskId, offset])
@@ -234,6 +235,8 @@ function VideoFrameInspector({ result }: { result: ResultFile }) {
     }
     const width = video.videoWidth, height = video.videoHeight
     if (!width || !height) return
+    const scaleX = coordinateSize?.width ? width / coordinateSize.width : 1
+    const scaleY = coordinateSize?.height ? height / coordinateSize.height : 1
     canvas.width = width; canvas.height = height
     const context = canvas.getContext('2d')
     if (!context) return
@@ -242,17 +245,17 @@ function VideoFrameInspector({ result }: { result: ResultFile }) {
       if (detection.face_box) {
         const { FaceRectX: x, FaceRectY: y, FaceRectWidth: boxWidth, FaceRectHeight: boxHeight } = detection.face_box
         if (x != null && y != null && boxWidth != null && boxHeight != null) {
-          context.strokeStyle = '#35e0c1'; context.lineWidth = Math.max(2, width / 500); context.strokeRect(x, y, boxWidth, boxHeight)
+          context.strokeStyle = '#35e0c1'; context.lineWidth = Math.max(2, width / 500); context.strokeRect(x * scaleX, y * scaleY, boxWidth * scaleX, boxHeight * scaleY)
         }
       }
       if (detection.landmarks?.length) {
         context.fillStyle = '#35e0c1'
         for (const point of detection.landmarks) {
-          context.beginPath(); context.arc(point.x, point.y, Math.max(2, width / 320), 0, Math.PI * 2); context.fill()
+          context.beginPath(); context.arc(point.x * scaleX, point.y * scaleY, Math.max(2, width / 320), 0, Math.PI * 2); context.fill()
         }
       }
     }
-  }, [current, overlayEnabled, videoUrl])
+  }, [current, coordinateSize, overlayEnabled, videoUrl])
 
   const emotionNames = Object.keys(EMOTION_LABELS)
   const visibleFrames = emotionFilter === 'all' ? frames : frames.filter(frame => (frame.dominant_emotions ?? emotionNamesFromLabel(frame.dominant_emotion)).includes(emotionFilter))

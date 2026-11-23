@@ -24,6 +24,7 @@ router = APIRouter(prefix="/api/extractions", tags=["extractions"])
 RESULTS_DIR = Path(tempfile.gettempdir()) / "fedet-results"
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 ALLOWED_EXTENSIONS = {".mp4", ".avi", ".mov"}
+PYFEAT_VIDEO_OUTPUT_SIZE = 700
 
 
 def _subject_filename(subject_id: str) -> str:
@@ -91,9 +92,14 @@ def _process_video(task_id, filename, video_bytes, subject_id, sampling_mode, ta
         cap = cv2.VideoCapture(str(video_path))
         fps = cap.get(cv2.CAP_PROP_FPS)
         frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        video_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        video_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         cap.release()
         if not fps or fps <= 0:
             fps = 30.0
+        resize_scale = PYFEAT_VIDEO_OUTPUT_SIZE / max(video_width, video_height) if video_width and video_height else 1.0
+        analysis_width = int(video_width * resize_scale) if video_width else None
+        analysis_height = int(video_height * resize_scale) if video_height else None
         skip_frames = 1 if sampling_mode == "all_frames" else calculate_skip_frames(fps, target_fps if sampling_mode == "custom_fps" else 1.0)
         expected_rows = int(math.ceil(frame_count / skip_frames)) if frame_count else 0
 
@@ -113,7 +119,7 @@ def _process_video(task_id, filename, video_bytes, subject_id, sampling_mode, ta
         output_path = RESULTS_DIR / f"{task_id}.parquet"
         output_path.write_bytes(dataframe_to_parquet_bytes(output_df))
         detected_frames = int(pd.to_numeric(output_df["frame"], errors="coerce").nunique()) if "frame" in output_df.columns else len(output_df)
-        task_progress.update(task_id, status="completed", progress=1.0, message="Extraction completed", result_path=str(output_path), rows=len(output_df), expected_rows=expected_rows, detected_frames=detected_frames, stimuli=stimuli, subject_id=subject_id, sampling_mode=sampling_mode, fps=float(fps))
+        task_progress.update(task_id, status="completed", progress=1.0, message="Extraction completed", result_path=str(output_path), rows=len(output_df), expected_rows=expected_rows, detected_frames=detected_frames, stimuli=stimuli, subject_id=subject_id, sampling_mode=sampling_mode, fps=float(fps), analysis_width=analysis_width, analysis_height=analysis_height)
     except Exception as exc:
         task_progress.update(task_id, status="failed", message="Extraction failed", error=f"{type(exc).__name__}: {exc}")
     finally:
@@ -228,7 +234,7 @@ def get_frame_data(task_id: str, offset: int = 0, limit: int = 500):
             "landmarks": detections[0]["landmarks"] if detections else None,
             "detections": detections,
         })
-    return {"sampling_mode": "all_frames", "total": total_frames, "offset": safe_offset, "limit": safe_limit, "frames": frames, "has_landmarks": bool(landmark_ids)}
+    return {"sampling_mode": "all_frames", "total": total_frames, "offset": safe_offset, "limit": safe_limit, "frames": frames, "has_landmarks": bool(landmark_ids), "coordinate_width": task.get("analysis_width"), "coordinate_height": task.get("analysis_height")}
 
 
 @router.get("/{task_id}/preview")
