@@ -5,8 +5,11 @@ const API = 'http://127.0.0.1:8000'
 type Stimulus = { nome: string; inicio: number; fim: number }
 type VideoEntry = { file: File; subject: string; stimuli: Stimulus[]; fps?: number; frameCount?: number; duration?: number; metadataError?: boolean }
 type NamedStimulus = { id: number; name: string }
-type PreviewData = { columns: string[]; rows: number; preview: Record<string, unknown>[]; face_score_median: number | null; face_score_missing: number | null; face_score_flagged: number | null; detected_frames: number; expected_rows: number; time_column: string | null; chart_points: Record<string, number | null>[]; chart_columns: { action_units: string[]; emotions: string[]; head_pose: string[] }; stimulus_statistics?: Record<string, Record<string, { before: number | null; during: number | null }>> }
-type ResultFile = { name: string; url: string; preview: PreviewData; stimuli: Stimulus[]; subject: string; taskId: string }
+type EmotionFrame = { frame: number | null; timestamp: string | number | null; dominant_emotion: string | null; dominant_emotions: string[]; dominant_score: number | null; emotions: Record<string, number | null> }
+type FaceDetection = { dominant_emotion: string | null; dominant_emotions: string[]; emotions: Record<string, number | null>; action_units: Record<string, number | null>; face_box: Record<string, number | null> | null; landmarks: { x: number; y: number }[] | null }
+type InspectedFrame = EmotionFrame & { time_sec: number | null; approx_time: string | null; action_units: Record<string, number | null>; landmarks: { x: number; y: number }[] | null; detections: FaceDetection[] }
+type PreviewData = { columns: string[]; rows: number; preview: Record<string, unknown>[]; face_score_median: number | null; face_score_missing: number | null; face_score_flagged: number | null; detected_frames: number; expected_rows: number; time_column: string | null; chart_points: Record<string, number | null>[]; chart_columns: { action_units: string[]; emotions: string[]; head_pose: string[] }; emotion_timeline: EmotionFrame[]; stimulus_statistics?: Record<string, Record<string, { before: number | null; during: number | null }>> }
+type ResultFile = { name: string; url: string; preview: PreviewData; stimuli: Stimulus[]; subject: string; taskId: string; videoFile: File; samplingMode: string; fps: number }
 
 function roundLikePython(value: number) {
   const lower = Math.floor(value)
@@ -98,12 +101,13 @@ export default function App() {
         } while (task.status !== 'completed')
         const response = await fetch(`${API}/api/extractions/${task_id}/download`)
         if (!response.ok) throw new Error('Could not download the Parquet result.')
-        const previewResponse = await fetch(`${API}/api/extractions/${task_id}/preview?limit=50&threshold=0.9`)
+        const previewResponse = await fetch(`${API}/api/extractions/${task_id}/preview?limit=50&threshold=0.9&include_timeline=${mode === 'all_frames' ? 'false' : 'true'}`)
         if (!previewResponse.ok) throw new Error(`Could not load data preview (${previewResponse.status}): ${await previewResponse.text()}`)
         const preview: PreviewData = await previewResponse.json()
         const url = URL.createObjectURL(await response.blob())
         downloadUrls.current.push(url)
-        results.push({ name: `${video.subject}_${video.file.name.replace(/\.[^.]+$/, '')}_pyfeat.parquet`, url, preview, stimuli: videoStimuli, subject: video.subject, taskId: task_id })
+        const safeSubject = video.subject.trim().replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').replace(/[ .]+$/, '') || 'subject'
+        results.push({ name: `${safeSubject}.parquet`, url, preview, stimuli: videoStimuli, subject: video.subject.trim(), taskId: task_id, videoFile: video.file, samplingMode: mode, fps: video.fps ?? 30 })
         setDownloads([...results])
         const elapsedSeconds = (performance.now() - videoStartedAt) / 1000
         setRuntimeHistory(current => {
@@ -149,7 +153,7 @@ export default function App() {
     <section className="panel processing-panel"><h2>3. Processing</h2><p className="muted">Upload a video and select Extract data to generate the output and its interactive visualizations.</p><button className="primary extract-button" disabled={busy} onClick={extract}>{busy ? 'Processing…' : 'Extract data'}</button><p className="status" role="status">{message}</p></section>
     {downloads.length > 0 && <StimulusAnalysis results={downloads} />}
     {downloads.length > 0 && <AdvancedStimulusAnalysis results={downloads} />}
-    {downloads.map(result => <ResultCard key={result.name} result={result} />)}
+    {downloads.map(result => <ResultCard key={result.taskId} result={result} />)}
   </main></div>}
   </>
 }
@@ -163,28 +167,159 @@ function ResultCard({ result }: { result: ResultFile }) {
   const available = chartColumns[category] ?? []
   const [selectedMetrics, setSelectedMetrics] = useState<string[]>([])
   const activeMetrics = selectedMetrics.filter(item => available.includes(item))
-  const selectedMetric = activeMetrics[0] ?? available[0]
+  const displayedMetrics = activeMetrics.length ? activeMetrics : available.slice(0, 1)
   useEffect(() => {
-    fetch(`${API}/api/extractions/${result.taskId}/preview?limit=1&threshold=${threshold}`).then(response => response.ok ? response.json() : null).then(data => { if (data) setFlaggedScores(data.face_score_flagged) }).catch(() => undefined)
+    fetch(`${API}/api/extractions/${result.taskId}/preview?limit=1&threshold=${threshold}&include_timeline=false`).then(response => response.ok ? response.json() : null).then(data => { if (data) setFlaggedScores(data.face_score_flagged) }).catch(() => undefined)
   }, [result.taskId, threshold])
-  return <section className="panel results"><h2>Extraction complete — {result.name}</h2><div className="quality-cards"><div><small>Output rows</small><strong>{result.preview.rows.toLocaleString()}</strong></div><div><small>Median FaceScore</small><strong>{result.preview.face_score_median?.toFixed(3) ?? 'N/A'}</strong></div><div><small>Missing FaceScore</small><strong>{result.preview.face_score_missing?.toLocaleString() ?? 'N/A'}</strong></div></div>
-    <h3>Data quality</h3><div className="quality-cards"><div><small>Frames with detections</small><strong>{result.preview.detected_frames.toLocaleString()} / {result.preview.expected_rows.toLocaleString()}</strong></div><div><small>Detection coverage</small><strong>{result.preview.expected_rows ? `${Math.min(result.preview.detected_frames/result.preview.expected_rows,1).toLocaleString(undefined,{style:"percent",maximumFractionDigits:1})}` : "N/A"}</strong></div><div><small>FaceScores below limit</small><strong>{flaggedScores?.toLocaleString() ?? "N/A"}</strong></div></div>{chartPoints.some(point => point.FaceScore != null) ? <><label>Flag FaceScore below {threshold.toFixed(2)}<input type="range" min="0" max="1" step="0.05" value={threshold} onChange={event=>setThreshold(Number(event.target.value))}/></label><LineChart points={chartPoints} metric="FaceScore" timeColumn={result.preview.time_column ?? "frame"} scatter threshold={threshold}/><ChartInfo text="Each point is a frame-level detection. The horizontal axis is time or frame; the vertical axis is FaceScore (0?1). The red line is your review threshold. A low score calls for image inspection; it does not tell you whether an AU or emotion is correct."/></> : <p className="muted">FaceScore is not available.</p>}
-    <h3>Signals over time</h3><div className="chart-controls"><select value={category} onChange={event=>{setCategory(event.target.value as typeof category);setSelectedMetrics([])}}><option value="action_units">Action Units</option><option value="emotions">Emotions</option><option value="head_pose">Head pose</option></select>{available.length>0&&<select multiple value={activeMetrics.length?activeMetrics:[available[0]]} onChange={event=>setSelectedMetrics(Array.from(event.currentTarget.selectedOptions,option=>option.value))}>{available.map(column=><option key={column}>{column}</option>)}</select>}</div>{available.length?<>{(activeMetrics.length?activeMetrics:[available[0]]).map(name=><LineChart key={name} points={chartPoints} metric={name} timeColumn={result.preview.time_column??"frame"} stimuli={result.stimuli}/>)}<ChartInfo text="The horizontal axis is time or frame; the vertical axis is the model output. Choose AUs, emotions, or pose in the controls. Shaded bands mark stimuli. Compare trends, not unlike scales; these values are model estimates."/></>:<p className="muted">No signals in this category.</p>}
+  return <section className="panel results"><h2>Extraction complete — {result.name.replace(/\.parquet$/i, '')}</h2><div className="quality-cards"><div><small>Output rows</small><strong>{result.preview.rows.toLocaleString()}</strong></div><div><small>Median FaceScore</small><strong>{result.preview.face_score_median?.toFixed(3) ?? 'N/A'}</strong></div><div><small>Missing FaceScore</small><strong>{result.preview.face_score_missing?.toLocaleString() ?? 'N/A'}</strong></div></div>
+    {result.samplingMode === 'all_frames' ? <VideoFrameInspector result={result} /> : <div className="frame-inspection-warning">Frame-synchronized video inspection is available only with <strong>Every frame (all_frames)</strong> sampling. This result used {result.samplingMode === 'fast_fps' ? '1 FPS sampling' : 'custom FPS sampling'}; its existing emotion timeline represents sampled output rows.</div>}
+    {result.preview.emotion_timeline?.length > 0 && <EmotionTimeline frames={result.preview.emotion_timeline} emotionNames={chartColumns.emotions} />}
+    <h3>Data quality</h3><div className="quality-cards"><div><small>Frames with detections</small><strong>{result.preview.detected_frames.toLocaleString()} / {result.preview.expected_rows.toLocaleString()}</strong></div><div><small>Detection coverage</small><strong>{result.preview.expected_rows ? `${Math.min(result.preview.detected_frames/result.preview.expected_rows,1).toLocaleString(undefined,{style:"percent",maximumFractionDigits:1})}` : "N/A"}</strong></div><div><small>FaceScores below limit</small><strong>{flaggedScores?.toLocaleString() ?? "N/A"}</strong></div></div>{chartPoints.some(point => point.FaceScore != null) ? <><label>Flag FaceScore below {threshold.toFixed(2)}<input type="range" min="0" max="1" step="0.05" value={threshold} onChange={event=>setThreshold(Number(event.target.value))}/></label><LineChart points={chartPoints} metrics={["FaceScore"]} timeColumn={result.preview.time_column ?? "frame"} scatter threshold={threshold}/><ChartInfo text="Each point is a frame-level detection. The horizontal axis is time or frame; the vertical axis is FaceScore (0?1). The red line is your review threshold. A low score calls for image inspection; it does not tell you whether an AU or emotion is correct."/></> : <p className="muted">FaceScore is not available.</p>}
+    <h3>Signals over time</h3><div className="chart-controls"><select value={category} onChange={event=>{setCategory(event.target.value as typeof category);setSelectedMetrics([])}}><option value="action_units">Action Units</option><option value="emotions">Emotions</option><option value="head_pose">Head pose</option></select>{available.length>0&&<MetricDropdown options={available} selected={displayedMetrics} onChange={setSelectedMetrics}/>}</div>{available.length?<><LineChart points={chartPoints} metrics={displayedMetrics} timeColumn={result.preview.time_column??"frame"} stimuli={result.stimuli}/><ChartInfo text="The horizontal axis is time or frame; the vertical axis uses a shared scale for the selected signals. Choose multiple AUs, emotions, or pose metrics to compare their trends. Shaded bands mark stimuli; these values are model estimates."/></>:<p className="muted">No signals in this category.</p>}
     {chartColumns.action_units.length>0&&<><h3>AU heatmap</h3><Heatmap points={chartPoints} columns={chartColumns.action_units} timeColumn={result.preview.time_column??"frame"} stimuli={result.stimuli}/><ChartInfo text="Each row is an AU and each column is a sampled frame. Color shows the model estimate; blank cells mean missing data, not zero. Blue indicates lower activation and red indicates higher activation. Shaded bands mark stimuli and help locate changes over time."/></>}
     <h3>Data preview (first 50 rows)</h3><div className="table-scroll"><table><thead><tr>{result.preview.columns.map(column => <th key={column}>{column}</th>)}</tr></thead><tbody>{result.preview.preview.map((row, i) => <tr key={i}>{result.preview.columns.map(column => <td key={column}>{row[column] == null ? '' : typeof row[column] === 'object' ? JSON.stringify(row[column]) : String(row[column])}</td>)}</tr>)}</tbody></table></div><a className="download" href={result.url} download={result.name}>Download Parquet</a>
   </section>
 }
 
-function LineChart({points,metric,timeColumn,scatter=false,threshold,stimuli=[]}:{points:Record<string,number|null>[];metric:string;timeColumn:string;scatter?:boolean;threshold?:number;stimuli?:Stimulus[]}) {
+const FRAME_PAGE_SIZE = 500
+
+function VideoFrameInspector({ result }: { result: ResultFile }) {
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const [videoUrl, setVideoUrl] = useState('')
+  const [frames, setFrames] = useState<InspectedFrame[]>([])
+  const [total, setTotal] = useState(0)
+  const [offset, setOffset] = useState(0)
+  const [currentFrame, setCurrentFrame] = useState(0)
+  const [emotionFilter, setEmotionFilter] = useState('all')
+  const [overlayEnabled, setOverlayEnabled] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    const url = URL.createObjectURL(result.videoFile)
+    setVideoUrl(url)
+    return () => URL.revokeObjectURL(url)
+  }, [result.videoFile])
+
+  useEffect(() => {
+    let cancelled = false
+    fetch(`${API}/api/extractions/${result.taskId}/frames?offset=${offset}&limit=${FRAME_PAGE_SIZE}`)
+      .then(async response => {
+        if (!response.ok) throw new Error(`Could not load frame data (${response.status}).`)
+        return response.json()
+      })
+      .then(data => { if (!cancelled) { setFrames(data.frames); setTotal(data.total); setError('') } })
+      .catch(reason => { if (!cancelled) setError(reason instanceof Error ? reason.message : 'Could not load frame data.') })
+    return () => { cancelled = true }
+  }, [result.taskId, offset])
+
+  const seekToFrame = (frame: InspectedFrame) => {
+    const time = frame.time_sec ?? (frame.frame ?? 0) / result.fps
+    if (videoRef.current && Number.isFinite(time)) videoRef.current.currentTime = time
+    setCurrentFrame(frame.frame ?? 0)
+  }
+  const syncCurrentFrame = () => {
+    const frameNumber = Math.max(0, Math.round((videoRef.current?.currentTime ?? 0) * result.fps))
+    setCurrentFrame(frameNumber)
+    if (frameNumber >= offset + FRAME_PAGE_SIZE && offset + FRAME_PAGE_SIZE < total) setOffset(offset + FRAME_PAGE_SIZE)
+    else if (frameNumber < offset && offset > 0) setOffset(Math.max(0, Math.floor(frameNumber / FRAME_PAGE_SIZE) * FRAME_PAGE_SIZE))
+  }
+
+  const current = frames.find(frame => frame.frame === currentFrame) ?? null
+  useEffect(() => {
+    const canvas = canvasRef.current, video = videoRef.current
+    if (!canvas || !video || !overlayEnabled || !current?.detections?.some(detection => detection.landmarks?.length)) {
+      if (canvas) canvas.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height)
+      return
+    }
+    const width = video.videoWidth, height = video.videoHeight
+    if (!width || !height) return
+    canvas.width = width; canvas.height = height
+    const context = canvas.getContext('2d')
+    if (!context) return
+    context.clearRect(0, 0, width, height)
+    for (const detection of current.detections) {
+      if (detection.face_box) {
+        const { FaceRectX: x, FaceRectY: y, FaceRectWidth: boxWidth, FaceRectHeight: boxHeight } = detection.face_box
+        if (x != null && y != null && boxWidth != null && boxHeight != null) {
+          context.strokeStyle = '#35e0c1'; context.lineWidth = Math.max(2, width / 500); context.strokeRect(x, y, boxWidth, boxHeight)
+        }
+      }
+      if (detection.landmarks?.length) {
+        context.fillStyle = '#35e0c1'
+        for (const point of detection.landmarks) {
+          context.beginPath(); context.arc(point.x, point.y, Math.max(2, width / 320), 0, Math.PI * 2); context.fill()
+        }
+      }
+    }
+  }, [current, overlayEnabled, videoUrl])
+
+  const emotionNames = Object.keys(EMOTION_LABELS)
+  const visibleFrames = emotionFilter === 'all' ? frames : frames.filter(frame => (frame.dominant_emotions ?? emotionNamesFromLabel(frame.dominant_emotion)).includes(emotionFilter))
+  const currentDetection = current?.detections?.[0]
+  const activeAus = currentDetection ? Object.entries(currentDetection.action_units).filter((entry): entry is [string, number] => typeof entry[1] === 'number' && entry[1] > 0).sort((a, b) => b[1] - a[1]).slice(0, 5) : []
+  return <section className="video-inspector">
+    <h3>Synced video and frame inspection</h3>
+    <p className="muted">Every block is one analyzed source frame. Playback follows the video; selecting a block seeks to its timestamp.</p>
+    {error && <p className="frame-inspection-warning">{error}</p>}
+    <div className="video-inspector-layout"><div className="video-stage"><video ref={videoRef} src={videoUrl} controls onTimeUpdate={syncCurrentFrame} onSeeked={syncCurrentFrame} onLoadedMetadata={syncCurrentFrame} /><canvas ref={canvasRef} className="landmark-overlay" aria-hidden="true" />{overlayEnabled && current && <div className="video-live-overlay"><strong>{current.detections.length} face detection(s)</strong>{currentDetection && <><span>{currentDetection.dominant_emotion ?? 'No emotion estimate'}</span><span>{Object.entries(currentDetection.emotions).map(([name, value]) => `${name}: ${value?.toFixed(2) ?? '—'}`).join(' · ')}</span></>}{activeAus.length > 0 && <span>{activeAus.map(([name, value]) => `${name}: ${value.toFixed(2)}`).join(' · ')}</span>}{!current.detections.some(detection => detection.landmarks?.length) && <span>Landmarks unavailable for this frame</span>}</div>}</div>
+      <div className="video-frame-details"><strong>Frame {current?.frame ?? currentFrame}</strong><span>Time: {current?.approx_time ?? `${(currentFrame / result.fps).toFixed(3)} s`}</span><span>Detections in frame: {current?.detections.length ?? 0}</span><span>Dominant emotion (first detection): {currentDetection?.dominant_emotion ?? 'No detection'}</span><span>Emotions: {currentDetection ? Object.entries(currentDetection.emotions).map(([name, value]) => `${name} ${value?.toFixed(3) ?? 'N/A'}`).join(' · ') : 'No frame data loaded'}</span><span>Top active AUs (first detection): {activeAus.map(([name, value]) => `${name} ${value.toFixed(3)}`).join(' · ') || 'None'}</span><span>Landmarks: {current?.detections.some(detection => detection.landmarks?.length) ? 'Available for overlay' : 'Unavailable'}</span></div></div>
+    <label className="overlay-toggle"><input type="checkbox" checked={overlayEnabled} onChange={event => setOverlayEnabled(event.target.checked)} />Enable video overlay (emotions, AUs and available landmarks)</label>
+    <div className="frame-timeline-controls"><label>Filter emotion<select value={emotionFilter} onChange={event => setEmotionFilter(event.target.value)}><option value="all">All emotions</option>{emotionNames.map(name => <option key={name} value={name}>{name}</option>)}</select></label><span>{total.toLocaleString()} analyzed frames · showing {Math.min(offset + 1, total)}–{Math.min(offset + frames.length, total)}</span></div>
+    <div className="emotion-timeline" role="list" aria-label="Analyzed video frames">{visibleFrames.map((frame, index) => {const name = frame.dominant_emotion;const selected = frame.frame === currentFrame;return <button key={`${frame.frame}-${index}`} type="button" className={`emotion-frame${selected ? ' selected' : ''}`} style={{background:emotionColor(name)}} title={`Frame ${frame.frame} · ${frame.approx_time ?? frame.time_sec ?? 'time unavailable'} · ${name ?? 'No detection'}`} aria-label={`Frame ${frame.frame}, ${name ?? 'no emotion'}`} onClick={() => seekToFrame(frame)}>{name ? emotionNamesFromLabel(name).length > 1 ? '=' : (EMOTION_LABELS[name] ?? name).slice(0,1) : '?'}</button>})}</div>
+    <div className="frame-page-controls"><button type="button" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - FRAME_PAGE_SIZE))}>Previous frames</button><button type="button" disabled={offset + frames.length >= total} onClick={() => setOffset(offset + FRAME_PAGE_SIZE)}>Next frames</button><small>Page {total ? Math.floor(offset / FRAME_PAGE_SIZE) + 1 : 0} of {Math.max(1, Math.ceil(total / FRAME_PAGE_SIZE))}</small></div>
+  </section>
+}
+
+function emotionNamesFromLabel(label: string | null) { return label ? label.split(' + ') : [] }
+
+const EMOTION_COLORS: Record<string, string> = { anger: '#d95d59', disgust: '#78a66a', fear: '#a78bca', happiness: '#e8bd4a', sadness: '#5794c5', surprise: '#e98b4d', neutral: '#87949a' }
+const EMOTION_LABELS: Record<string, string> = { anger: 'Anger', disgust: 'Disgust', fear: 'Fear', happiness: 'Happiness', sadness: 'Sadness', surprise: 'Surprise', neutral: 'Neutral' }
+function emotionNames(value: string | null) { return value ? value.split(' + ') : [] }
+function emotionLabel(value: string | null) { return emotionNames(value).map(name => EMOTION_LABELS[name] ?? name).join(' + ') }
+function emotionColor(value: string | null) {
+  const colors = emotionNames(value).map(name => EMOTION_COLORS[name] ?? '#66777d')
+  if (!colors.length) return '#34454c'
+  if (colors.length === 1) return colors[0]
+  const step = 100 / colors.length
+  return `linear-gradient(135deg, ${colors.map((color, index) => `${color} ${index * step}% ${(index + 1) * step}%`).join(', ')})`
+}
+
+function EmotionTimeline({ frames, emotionNames }: { frames: EmotionFrame[]; emotionNames: string[] }) {
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
+  const selected = selectedIndex === null ? null : frames[selectedIndex]
+  const names = emotionNames.length ? emotionNames : [...new Set(frames.flatMap(frame => Object.keys(frame.emotions)))]
+  return <>
+    <h3>Dominant emotion by frame</h3>
+    <p className="muted">Each block represents one output frame or sample. Scroll horizontally to inspect the full sequence; hover for a quick summary or select a block for all emotion scores.</p>
+    <div className="emotion-legend">{names.map(name => <span key={name}><i style={{ background: EMOTION_COLORS[name] ?? '#66777d' }} />{EMOTION_LABELS[name] ?? name}</span>)}</div>
+    <div className="emotion-timeline" role="list" aria-label={`${frames.length} frames in emotion timeline`}>
+      {frames.map((item, index) => {
+        const names = emotionNames(item.dominant_emotion)
+        const label = names.length ? `${emotionLabel(item.dominant_emotion)}${names.length > 1 ? ' (tie)' : ''}` : 'No emotion score'
+        const tooltip = `Frame ${item.frame ?? index + 1} · ${item.timestamp ?? 'time unavailable'} · ${label}${item.dominant_score == null ? '' : ` (${item.dominant_score.toFixed(4)})`}`
+        return <button key={`${item.frame ?? 'frame'}-${index}`} type="button" className={`emotion-frame${selectedIndex === index ? ' selected' : ''}`} style={{ background: emotionColor(item.dominant_emotion) }} title={tooltip} aria-label={tooltip} aria-pressed={selectedIndex === index} onClick={() => setSelectedIndex(index)}>{names.length > 1 ? '=' : names.length ? (EMOTION_LABELS[names[0]] ?? names[0]).slice(0, 1) : '?'}</button>
+      })}
+    </div>
+    {selected && <div className="emotion-frame-details"><strong>Frame {selected.frame ?? (selectedIndex ?? 0) + 1}</strong><span>Timestamp: {selected.timestamp ?? 'N/A'}</span><span>Dominant emotion: {emotionLabel(selected.dominant_emotion) || 'No score'}{emotionNames(selected.dominant_emotion).length > 1 ? ' (tie)' : ''}</span><span>Dominant value: {selected.dominant_score?.toFixed(4) ?? 'N/A'}</span><div className="emotion-scores">{names.map(name => <span key={name}>{EMOTION_LABELS[name] ?? name}: {selected.emotions[name]?.toFixed(4) ?? 'N/A'}</span>)}</div></div>}
+  </>
+}
+
+function MetricDropdown({options,selected,onChange}:{options:string[];selected:string[];onChange:(metrics:string[])=>void}) {
+  const [open,setOpen]=useState(false)
+  return <div className="metric-dropdown"><button type="button" aria-expanded={open} onClick={()=>setOpen(value=>!value)}>{selected.length ? `${selected.length} selected` : 'Choose metrics'} ▾</button>{open&&<div className="metric-dropdown-menu">{options.map(option=><label key={option}><input type="checkbox" checked={selected.includes(option)} onChange={event=>onChange(event.target.checked?[...selected,option]:selected.filter(item=>item!==option))}/>{option}</label>)}</div>}</div>
+}
+
+function LineChart({points,metrics,timeColumn,scatter=false,threshold,stimuli=[]}:{points:Record<string,number|null>[];metrics:string[];timeColumn:string;scatter?:boolean;threshold?:number;stimuli?:Stimulus[]}) {
   const [hovered,setHovered]=useState<number|null>(null)
-  const values=points.map(p=>p[metric]).filter((v):v is number=>typeof v==='number'&&Number.isFinite(v)); if(values.length<2)return <p className="muted">Not enough values to plot.</p>
+  const metric=metrics[0]; if(!metric)return <p className="muted">Choose at least one signal to plot.</p>
+  const values=metrics.flatMap(name=>points.map(p=>p[name]).filter((v):v is number=>typeof v==='number'&&Number.isFinite(v))); if(values.length<2)return <p className="muted">Not enough values to plot.</p>
   const min=Math.min(...values,...(threshold===undefined?[]:[threshold])),max=Math.max(...values,...(threshold===undefined?[]:[threshold])),span=max-min||1
   const times=points.map(p=>typeof p[timeColumn]==='number'?p[timeColumn] as number:null), validTimes=times.filter((v):v is number=>v!==null); if(!validTimes.length)return <p className="muted">Time values are not available for this chart.</p>
   const xMin=Math.min(...validTimes),xMax=Math.max(...validTimes),xSpan=xMax-xMin||1
-  const xy=points.map((p,i)=>{const v=p[metric],t=times[i];return typeof v==='number'&&t!==null?{i,x:((t-xMin)/xSpan)*1000,y:180-((v-min)/span)*160,v,t}:null})
-  const runs:{i:number,x:number,y:number,v:number,t:number}[][]=[];let run:{i:number,x:number,y:number,v:number,t:number}[]=[];xy.forEach(point=>{if(point){run.push(point)}else if(run.length){runs.push(run);run=[]}});if(run.length)runs.push(run)
-  const selected=xy.find(p=>p?.i===hovered)
-  return <div className="line-chart"><svg viewBox="0 0 1000 230" role="img" aria-label={`${metric} over time`} onMouseLeave={()=>setHovered(null)}><line x1="0" y1="180" x2="1000" y2="180" stroke="#71847f"/><line x1="0" y1="10" x2="0" y2="180" stroke="#71847f"/>{[0,.5,1].map((t,i)=><g key={`axis-${i}`}><line x1="0" x2="1000" y1={10+t*170} y2={10+t*170} stroke="#394951"/><text x="4" y={7+t*170} fill="#aebdb9" fontSize="11">{(max-t*span).toFixed(2)}</text></g>)}{[0,.5,1].map((t,i)=><g key={`x-tick-${i}`}><line x1={t*1000} y1="180" x2={t*1000} y2="186" stroke="#aebdb9"/><text x={t*1000} y="202" textAnchor={i===0?"start":i===2?"end":"middle"} fill="#c2cfcc" fontSize="12">{(xMin+t*xSpan).toFixed(1)}</text></g>)}<text x="500" y="222" textAnchor="middle" fill="#c2cfcc" fontSize="12">{timeColumn}</text>{stimuli.map((item,i)=>{const start=Math.max(xMin,Math.min(item.inicio,item.fim)),end=Math.min(xMax,Math.max(item.inicio,item.fim));return end>start?<rect key={i} x={(start-xMin)/xSpan*1000} y="10" width={(end-start)/xSpan*1000} height="180" fill="#f09a52" opacity=".10"><title>{item.nome}</title></rect>:null})}{!scatter&&runs.map((r,i)=><polyline key={i} points={r.map(p=>`${p.x},${p.y}`).join(' ')} fill="none" stroke="#f09a52" strokeWidth="2" vectorEffect="non-scaling-stroke"/>)}{threshold!==undefined&&<line x1="0" x2="1000" y1={180-((threshold-min)/span)*160} y2={180-((threshold-min)/span)*160} stroke="#ef5350" strokeDasharray="7 5"/>}{xy.map(p=>p&&<circle key={p.i} cx={p.x} cy={p.y} r={scatter?4:2.5} fill={scatter?'#f09a52':'#edf3f1'} onMouseEnter={()=>setHovered(p.i)}><title>{`${timeColumn}: ${p.t} ? ${metric}: ${p.v.toFixed(4)}`}</title></circle>)}</svg>{selected&&<div className="chart-tooltip">{timeColumn}: {selected.t} ? {metric}: {selected.v.toFixed(4)}</div>}<div className="chart-axis"><span>X: {timeColumn} ({xMin.toFixed(2)}?{xMax.toFixed(2)})</span><span>Y: {metric} ({min.toFixed(3)} ? {max.toFixed(3)})</span></div></div>
+  const series=metrics.map((name,index)=>({name,color:`hsl(${(index*67+24)%360} 72% 65%)`,xy:points.map((p,i)=>{const v=p[name],t=times[i];return typeof v==='number'&&t!==null?{i,x:((t-xMin)/xSpan)*1000,y:180-((v-min)/span)*160,v,t}:null})}))
+  const selected=hovered===null?null:series.flatMap(row=>row.xy.map(point=>point?{...point,name:row.name,color:row.color}:null)).find(point=>point?.i===hovered)
+  return <div className="line-chart"><svg viewBox="0 0 1000 230" role="img" aria-label={`${metrics.join(', ')} over time`} onMouseLeave={()=>setHovered(null)}><line x1="0" y1="180" x2="1000" y2="180" stroke="#71847f"/><line x1="0" y1="10" x2="0" y2="180" stroke="#71847f"/>{[0,.5,1].map((t,i)=><g key={`axis-${i}`}><line x1="0" x2="1000" y1={10+t*170} y2={10+t*170} stroke="#394951"/><text x="4" y={7+t*170} fill="#aebdb9" fontSize="11">{(max-t*span).toFixed(2)}</text></g>)}{[0,.5,1].map((t,i)=><g key={`x-tick-${i}`}><line x1={t*1000} y1="180" x2={t*1000} y2="186" stroke="#aebdb9"/><text x={t*1000} y="202" textAnchor={i===0?"start":i===2?"end":"middle"} fill="#c2cfcc" fontSize="12">{(xMin+t*xSpan).toFixed(1)}</text></g>)}<text x="500" y="222" textAnchor="middle" fill="#c2cfcc" fontSize="12">{timeColumn}</text>{stimuli.map((item,i)=>{const start=Math.max(xMin,Math.min(item.inicio,item.fim)),end=Math.min(xMax,Math.max(item.inicio,item.fim));return end>start?<rect key={i} x={(start-xMin)/xSpan*1000} y="10" width={(end-start)/xSpan*1000} height="180" fill="#f09a52" opacity=".10"><title>{item.nome}</title></rect>:null})}{series.map(row=>{const runs:{x:number,y:number}[][]=[];let run:{x:number,y:number}[]=[];row.xy.forEach(point=>{if(point)run.push(point);else if(run.length){runs.push(run);run=[]}});if(run.length)runs.push(run);return <g key={row.name}>{!scatter&&runs.map((line,i)=><polyline key={i} points={line.map(point=>`${point.x},${point.y}`).join(' ')} fill="none" stroke={row.color} strokeWidth="2" vectorEffect="non-scaling-stroke"/>)}{row.xy.map(point=>point&&<circle key={point.i} cx={point.x} cy={point.y} r={scatter?4:2.5} fill={row.color} onMouseEnter={()=>setHovered(point.i)}><title>{`${timeColumn}: ${point.t} · ${row.name}: ${point.v.toFixed(4)}`}</title></circle>)}</g>})}{threshold!==undefined&&<line x1="0" x2="1000" y1={180-((threshold-min)/span)*160} y2={180-((threshold-min)/span)*160} stroke="#ef5350" strokeDasharray="7 5"/>}</svg>{selected&&<div className="chart-tooltip">{timeColumn}: {selected.t} · {selected.name}: {selected.v.toFixed(4)}</div>}<div className="chart-legend">{metrics.map((name,index)=><span key={name} style={{color:`hsl(${(index*67+24)%360} 72% 65%)`}}>● {name}</span>)}</div><div className="chart-axis"><span>X: {timeColumn} ({xMin.toFixed(2)}–{xMax.toFixed(2)})</span><span>Y: shared scale ({min.toFixed(3)}–{max.toFixed(3)})</span></div></div>
 }
 
 function Heatmap({points,columns,timeColumn,stimuli=[]}:{points:Record<string,number|null>[];columns:string[];timeColumn:string;stimuli?:Stimulus[]}) {

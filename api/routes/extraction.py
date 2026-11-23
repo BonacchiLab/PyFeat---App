@@ -3,6 +3,7 @@
 import json
 import asyncio
 import math
+import re
 import tempfile
 import time
 import uuid
@@ -15,7 +16,7 @@ from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Uploa
 from fastapi.responses import FileResponse, StreamingResponse
 
 from core.detector import detect_video
-from core.processing import apply_stimulus_metadata, calculate_skip_frames, dataframe_to_parquet_bytes, prepare_frame_dataframe
+from core.processing import add_dominant_emotion, apply_stimulus_metadata, calculate_skip_frames, dataframe_to_parquet_bytes, prepare_frame_dataframe
 from core.progress import task_progress
 from api.schemas import StimulusWindow
 
@@ -23,6 +24,11 @@ router = APIRouter(prefix="/api/extractions", tags=["extractions"])
 RESULTS_DIR = Path(tempfile.gettempdir()) / "fedet-results"
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 ALLOWED_EXTENSIONS = {".mp4", ".avi", ".mov"}
+
+
+def _subject_filename(subject_id: str) -> str:
+    safe_name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", subject_id.strip()).rstrip(" .")
+    return f"{safe_name or 'subject'}.parquet"
 
 
 @router.post("", status_code=202)
@@ -99,6 +105,7 @@ def _process_video(task_id, filename, video_bytes, subject_id, sampling_mode, ta
         prediction = detect_video(video_path, skip_frames, update_progress)
         raw_df = prediction.to_pandas() if hasattr(prediction, "to_pandas") else prediction
         output_df = prepare_frame_dataframe(raw_df, fps, sampling_mode)
+        output_df = add_dominant_emotion(output_df)
         if stimuli:
             output_df = apply_stimulus_metadata(output_df, stimuli)
         output_df["subject_id"] = subject_id
@@ -106,7 +113,7 @@ def _process_video(task_id, filename, video_bytes, subject_id, sampling_mode, ta
         output_path = RESULTS_DIR / f"{task_id}.parquet"
         output_path.write_bytes(dataframe_to_parquet_bytes(output_df))
         detected_frames = int(pd.to_numeric(output_df["frame"], errors="coerce").nunique()) if "frame" in output_df.columns else len(output_df)
-        task_progress.update(task_id, status="completed", progress=1.0, message="Extraction completed", result_path=str(output_path), rows=len(output_df), expected_rows=expected_rows, detected_frames=detected_frames, stimuli=stimuli)
+        task_progress.update(task_id, status="completed", progress=1.0, message="Extraction completed", result_path=str(output_path), rows=len(output_df), expected_rows=expected_rows, detected_frames=detected_frames, stimuli=stimuli, subject_id=subject_id, sampling_mode=sampling_mode, fps=float(fps))
     except Exception as exc:
         task_progress.update(task_id, status="failed", message="Extraction failed", error=f"{type(exc).__name__}: {exc}")
     finally:
@@ -150,11 +157,82 @@ def download_result(task_id: str):
     if task["status"] != "completed" or not task.get("result_path"):
         raise HTTPException(status_code=409, detail="Extraction is not complete")
     path = Path(task["result_path"])
-    return FileResponse(path, media_type="application/vnd.apache.parquet", filename=f"{task_id}_pyfeat.parquet")
+    return FileResponse(path, media_type="application/vnd.apache.parquet", filename=_subject_filename(task.get("subject_id", task_id)))
+
+
+@router.get("/{task_id}/frames")
+def get_frame_data(task_id: str, offset: int = 0, limit: int = 500):
+    task = task_progress.get(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if task["status"] != "completed" or not task.get("result_path"):
+        raise HTTPException(status_code=409, detail="Extraction is not complete")
+    if task.get("sampling_mode") != "all_frames":
+        raise HTTPException(status_code=409, detail={"message": "Frame-synchronized inspection requires all_frames sampling.", "sampling_mode": task.get("sampling_mode")})
+    path = Path(task["result_path"])
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Result file not found")
+    safe_offset = max(0, offset)
+    safe_limit = min(max(1, limit), 1000)
+    df = pd.read_parquet(path)
+    emotion_columns = [column for column in ("anger", "disgust", "fear", "happiness", "sadness", "surprise", "neutral") if column in df.columns and pd.api.types.is_numeric_dtype(df[column])]
+    au_columns = sorted((column for column in df.columns if re.fullmatch(r"AU\d+", column)), key=lambda column: int(column[2:]))
+    landmark_columns = [column for column in df.columns if re.fullmatch(r"[xy]_\d+", column)]
+    landmark_ids = sorted({int(column[2:]) for column in landmark_columns})
+    box_columns = [column for column in ("FaceRectX", "FaceRectY", "FaceRectWidth", "FaceRectHeight", "FaceScore") if column in df.columns]
+    selected = [column for column in ("frame", "time_sec", "approx_time", "dominant_emotion", *emotion_columns, *au_columns, *box_columns, *landmark_columns) if column in df.columns]
+    if "frame" in df.columns:
+        frame_numbers = df["frame"].drop_duplicates().iloc[safe_offset:safe_offset + safe_limit].tolist()
+        total_frames = int(df["frame"].nunique(dropna=False))
+    else:
+        frame_numbers = list(range(safe_offset, min(safe_offset + safe_limit, len(df))))
+        total_frames = len(df)
+    if "frame" in df.columns:
+        page_mask = df["frame"].isin(frame_numbers)
+        if any(pd.isna(frame_number) for frame_number in frame_numbers):
+            page_mask |= df["frame"].isna()
+        page_df = df.loc[page_mask, selected]
+        page_groups = page_df.groupby("frame", sort=False, dropna=False)
+    else:
+        page_groups = ((frame_number, df.iloc[[frame_number]][selected]) for frame_number in frame_numbers)
+    frames = []
+    for frame_number, group in page_groups:
+        records = json.loads(group[selected].to_json(orient="records"))
+        detections = []
+        for record in records:
+            landmarks = []
+            for landmark_id in landmark_ids:
+                x, y = record.get(f"x_{landmark_id}"), record.get(f"y_{landmark_id}")
+                if x is not None and y is not None:
+                    landmarks.append({"x": x, "y": y})
+            dominant = record.get("dominant_emotion")
+            dominant_emotions = dominant.split(" + ") if isinstance(dominant, str) else []
+            box = {column: record.get(column) for column in box_columns} or None
+            detections.append({
+                "dominant_emotion": dominant,
+                "dominant_emotions": dominant_emotions,
+                "emotions": {column: record.get(column) for column in emotion_columns},
+                "action_units": {column: record.get(column) for column in au_columns},
+                "face_box": box,
+                "landmarks": landmarks or None,
+            })
+        first = records[0] if records else {}
+        frames.append({
+            "frame": None if pd.isna(frame_number) else frame_number,
+            "time_sec": first.get("time_sec"),
+            "approx_time": first.get("approx_time"),
+            "dominant_emotion": first.get("dominant_emotion"),
+            "dominant_emotions": first.get("dominant_emotion", "").split(" + ") if isinstance(first.get("dominant_emotion"), str) else [],
+            "emotions": {column: first.get(column) for column in emotion_columns},
+            "action_units": {column: first.get(column) for column in au_columns},
+            "landmarks": detections[0]["landmarks"] if detections else None,
+            "detections": detections,
+        })
+    return {"sampling_mode": "all_frames", "total": total_frames, "offset": safe_offset, "limit": safe_limit, "frames": frames, "has_landmarks": bool(landmark_ids)}
 
 
 @router.get("/{task_id}/preview")
-def preview_result(task_id: str, limit: int = 50, threshold: float = 0.9):
+def preview_result(task_id: str, limit: int = 50, threshold: float = 0.9, include_timeline: bool = True):
     task = task_progress.get(task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -175,6 +253,26 @@ def preview_result(task_id: str, limit: int = 50, threshold: float = 0.9):
     au_columns = sorted((column for column in numeric_columns if column.startswith("AU") and column[2:].isdigit()), key=lambda column: int(column[2:]))
     emotion_names = ["neutral", "happiness", "sadness", "anger", "fear", "disgust", "surprise"]
     emotion_columns = [column for column in emotion_names if column in numeric_columns]
+    if include_timeline and "dominant_emotion" in df.columns and emotion_columns:
+        timeline_columns = [column for column in ("frame", "approx_time", "time_sec", "time_start_sec", "dominant_emotion", *emotion_columns) if column in df.columns]
+        timeline = []
+        for row in json.loads(df[timeline_columns].to_json(orient="records")):
+            dominant = row.get("dominant_emotion")
+            dominant_emotions = dominant.split(" + ") if isinstance(dominant, str) else []
+            dominant_score = row.get(dominant_emotions[0]) if dominant_emotions else None
+            timestamp = row.get("approx_time")
+            if timestamp is None:
+                timestamp = row.get("time_sec", row.get("time_start_sec"))
+            timeline.append({
+                "frame": row.get("frame"),
+                "timestamp": timestamp,
+                "dominant_emotion": dominant,
+                "dominant_emotions": dominant_emotions,
+                "dominant_score": dominant_score,
+                "emotions": {column: row.get(column) for column in emotion_columns},
+            })
+    else:
+        timeline = []
     pose_columns = [column for column in ("Pitch", "Roll", "Yaw") if column in numeric_columns]
     stimulus_statistics = {}
     if time_column:
@@ -206,5 +304,6 @@ def preview_result(task_id: str, limit: int = 50, threshold: float = 0.9):
         "time_column": time_column,
         "chart_points": chart_points,
         "chart_columns": {"action_units": au_columns, "emotions": emotion_columns, "head_pose": pose_columns},
+        "emotion_timeline": timeline,
         "stimulus_statistics": stimulus_statistics,
     }

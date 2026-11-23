@@ -6,6 +6,9 @@ from typing import Any, Iterable, Mapping
 import pandas as pd
 
 
+EMOTION_COLUMNS = ("anger", "disgust", "fear", "happiness", "sadness", "surprise", "neutral")
+
+
 def format_seconds_to_clock(seconds: float) -> str:
     minutes = int(seconds // 60)
     secs = int(seconds % 60)
@@ -51,6 +54,29 @@ def prepare_frame_dataframe(df_raw: pd.DataFrame, fps: float, sampling_mode: str
         df_out["approx_time"] = df_out["time_sec"].apply(format_seconds_to_clock)
         return df_out
     return aggregate_by_second(df_raw, fps)
+
+
+def add_dominant_emotion(df: pd.DataFrame) -> pd.DataFrame:
+    """Add the highest-scoring available emotion without changing source scores."""
+    if df is None:
+        return df
+    out = df.copy()
+    emotion_columns = [
+        column for column in EMOTION_COLUMNS
+        if column in out.columns and pd.api.types.is_numeric_dtype(out[column])
+    ]
+    if not emotion_columns:
+        out["dominant_emotion"] = pd.Series(None, index=out.index, dtype="object")
+        return out
+
+    scores = out[emotion_columns].apply(pd.to_numeric, errors="coerce")
+    row_maxima = scores.max(axis=1)
+    tied_maxima = scores.eq(row_maxima, axis="index")
+    out["dominant_emotion"] = tied_maxima.apply(
+        lambda row: " + ".join(row.index[row].tolist()) if row.any() else None,
+        axis=1,
+    )
+    return out
 
 
 def apply_stimulus_metadata(df: pd.DataFrame, stimuli: Iterable[Mapping[str, Any]]) -> pd.DataFrame:
